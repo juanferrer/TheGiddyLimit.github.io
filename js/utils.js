@@ -2,11 +2,12 @@
 // Strict mode should not be used, as the roll20 script depends on this file //
 // Do not use classes                                                        //
 // ************************************************************************* //
-if (typeof module !== "undefined") require("./parser.js");
+IS_NODE = typeof module !== "undefined";
+if (IS_NODE) require("./parser.js");
 
 // in deployment, `IS_DEPLOYED = "<version number>";` should be set below.
 IS_DEPLOYED = undefined;
-VERSION_NUMBER = /* 5ETOOLS_VERSION__OPEN */"1.116.7"/* 5ETOOLS_VERSION__CLOSE */;
+VERSION_NUMBER = /* 5ETOOLS_VERSION__OPEN */"1.131.2"/* 5ETOOLS_VERSION__CLOSE */;
 DEPLOYED_STATIC_ROOT = ""; // "https://static.5etools.com/"; // FIXME re-enable this when we have a CDN again
 // for the roll20 script to set
 IS_VTT = false;
@@ -25,7 +26,8 @@ VeCt = {
 	STR_NONE: "None",
 	STR_SEE_CONSOLE: "See the console (CTRL+SHIFT+J) for details.",
 
-	HASH_MON_SCALED: "scaled",
+	HASH_SCALED: "scaled",
+	HASH_SCALED_SUMMON: "scaledsummon",
 
 	FILTER_BOX_SUB_HASH_SEARCH_PREFIX: "fbsr",
 
@@ -43,10 +45,21 @@ VeCt = {
 	DUR_INLINE_NOTIFY: 500,
 
 	PG_NONE: "NO_PAGE",
+	STR_GENERIC: "Generic",
 
 	SYM_UI_SKIP: Symbol("uiSkip"),
 
 	LOC_ORIGIN_CANCER: "https://5e.tools",
+
+	STR_NO_ATTUNEMENT: "No Attunement Required",
+
+	CR_UNKNOWN: 100,
+	CR_CUSTOM: 99,
+
+	SPELL_LEVEL_MAX: 9,
+
+	ENTDATA_TABLE_INCLUDE: "tableInclude",
+	ENTDATA_ITEM_MERGED_ENTRY_TAG: "item.mergedEntryTag",
 };
 
 // STRING ==============================================================================================================
@@ -198,6 +211,13 @@ String.prototype.toChunks = String.prototype.toChunks || function (size) {
 	return chunks
 };
 
+String.prototype.toAscii = String.prototype.toAscii || function () {
+	return this
+		.normalize("NFD") // replace diacritics with their individual graphemes
+		.replace(/[\u0300-\u036f]/g, "") // remove accent graphemes
+		.replace(/Æ/g, "AE").replace(/æ/g, "ae");
+};
+
 Array.prototype.joinConjunct = Array.prototype.joinConjunct || function (joiner, lastJoiner, nonOxford) {
 	if (this.length === 0) return "";
 	if (this.length === 1) return this[0];
@@ -279,6 +299,7 @@ CleanUtil = {
 };
 CleanUtil.SHARED_REPLACEMENTS = {
 	"’": "'",
+	"": "'",
 	"…": "...",
 	" ": " ", // non-breaking space
 	"ﬀ": "ff",
@@ -322,6 +343,9 @@ SourceUtil = {
 		const fromLookup = MiscUtil.get(SourceUtil._subclassReprintLookup, classSource, className, subclassSource, subclassShortName);
 		return fromLookup ? fromLookup.isReprinted : false;
 	},
+
+	/** I.e., not homebrew. */
+	isSiteSource (source) { return !!Parser.SOURCE_JSON_TO_FULL[source]; },
 
 	isAdventure (source) {
 		if (source instanceof FilterItem) source = source.item;
@@ -369,6 +393,9 @@ CurrencyUtil = {
 	 * @param [opts]
 	 * @param [opts.currencyConversionId] Currency conversion table ID.
 	 * @param [opts.currencyConversionTable] Currency conversion table.
+	 * @param [opts.originalCurrency] Original currency object, if the current currency object is after spending coin.
+	 * @param [opts.isPopulateAllValues] If all currency properties should be be populated, even if no currency of that
+	 * type is being returned (i.e. zero out unused coins).
 	 */
 	doSimplifyCoins (obj, opts) {
 		opts = opts || {};
@@ -398,6 +425,47 @@ CurrencyUtil = {
 			}
 		}
 
+		// Note: this assumes that we, overall, lost money.
+		if (opts.originalCurrency) {
+			const normalizedHighToLow = MiscUtil.copy(normalized).reverse();
+
+			// For each currency, look at the previous coin's diff. Say, for gp, that it is -1pp. That means we could have
+			//   gained up to 10gp as change. So we can have <original gold or 0> + <10gp> max gold; the rest is converted
+			//   to sp. Repeat to the end.
+			// Never allow more highest-value currency (i.e. pp) than we originally had.
+			normalizedHighToLow
+				.forEach((coinMeta, i) => {
+					const valOld = opts.originalCurrency[coinMeta.coin] || 0;
+					const valNew = obj[coinMeta.coin] || 0;
+
+					const prevCoinMeta = normalizedHighToLow[i - 1];
+					const nxtCoinMeta = normalizedHighToLow[i + 1];
+
+					if (!prevCoinMeta) { // Handle the biggest currency, e.g. platinum--never allow it to increase
+						if (nxtCoinMeta) {
+							const diff = valNew - valOld;
+							if (diff > 0) {
+								obj[coinMeta.coin] = valOld;
+								const coinRatio = coinMeta.normalizedMult / nxtCoinMeta.normalizedMult;
+								obj[nxtCoinMeta.coin] = (obj[nxtCoinMeta.coin] || 0) + (diff * coinRatio);
+							}
+						}
+					} else {
+						if (nxtCoinMeta) {
+							const diffPrevCoin = (opts.originalCurrency[prevCoinMeta.coin] || 0) - (obj[prevCoinMeta.coin] || 0);
+							const coinRatio = prevCoinMeta.normalizedMult / coinMeta.normalizedMult;
+							const capFromOld = valOld + (diffPrevCoin > 0 ? diffPrevCoin * coinRatio : 0);
+							const diff = valNew - capFromOld;
+							if (diff > 0) {
+								obj[coinMeta.coin] = capFromOld;
+								const coinRatio = coinMeta.normalizedMult / nxtCoinMeta.normalizedMult;
+								obj[nxtCoinMeta.coin] = (obj[nxtCoinMeta.coin] || 0) + (diff * coinRatio);
+							}
+						}
+					}
+				});
+		}
+
 		normalized
 			.filter(coinMeta => obj[coinMeta.coin] === 0 || obj[coinMeta.coin] == null)
 			.forEach(coinMeta => {
@@ -405,6 +473,8 @@ CurrencyUtil = {
 				obj[coinMeta.coin] = null;
 				delete obj[coinMeta.coin];
 			});
+
+		if (opts.isPopulateAllValues) normalized.forEach(coinMeta => obj[coinMeta.coin] = obj[coinMeta.coin] || 0);
 
 		return obj;
 	},
@@ -644,6 +714,168 @@ JqueryUtil = {
 
 if (typeof window !== "undefined") window.addEventListener("load", JqueryUtil.initEnhancements);
 
+ElementUtil = {
+	getOrModify ({
+		tag,
+		clazz,
+		style,
+		click,
+		contextmenu,
+		change,
+		mousedown,
+		mouseup,
+		mousemove,
+		html,
+		text,
+		ele,
+		name,
+		title,
+		val,
+		children,
+		outer,
+		href,
+	}) {
+		ele = ele || (outer ? (new DOMParser()).parseFromString(outer, "text/html").body.childNodes[0] : document.createElement(tag));
+
+		if (clazz) ele.className = clazz;
+		if (style) ele.setAttribute("style", style);
+		if (click) ele.addEventListener("click", click);
+		if (contextmenu) ele.addEventListener("contextmenu", contextmenu);
+		if (change) ele.addEventListener("change", change);
+		if (mousedown) ele.addEventListener("mousedown", mousedown);
+		if (mouseup) ele.addEventListener("mouseup", mouseup);
+		if (mousemove) ele.addEventListener("mousemove", mousemove);
+		if (html != null) ele.innerHTML = html;
+		if (text != null) ele.textContent = text;
+		if (name != null) ele.setAttribute("name", name);
+		if (title != null) ele.setAttribute("title", title);
+		if (href != null) ele.setAttribute("href", href);
+		if (val != null) ele.setAttribute("value", val);
+		if (children) for (let i = 0, len = children.length; i < len; ++i) ele.append(children[i]);
+
+		ele.appends = ele.appends || ElementUtil._appends.bind(ele);
+		ele.appendTo = ele.appendTo || ElementUtil._appendTo.bind(ele);
+		ele.prependTo = ele.prependTo || ElementUtil._prependTo.bind(ele);
+		ele.addClass = ele.addClass || ElementUtil._addClass.bind(ele);
+		ele.removeClass = ele.removeClass || ElementUtil._removeClass.bind(ele);
+		ele.toggleClass = ele.toggleClass || ElementUtil._toggleClass.bind(ele);
+		ele.showVe = ele.showVe || ElementUtil._showVe.bind(ele);
+		ele.hideVe = ele.hideVe || ElementUtil._hideVe.bind(ele);
+		ele.toggleVe = ele.toggleVe || ElementUtil._toggleVe.bind(ele);
+		ele.empty = ele.empty || ElementUtil._empty.bind(ele);
+		ele.detach = ele.detach || ElementUtil._detach.bind(ele);
+		ele.attr = ele.attr || ElementUtil._attr.bind(ele);
+		ele.val = ele.val || ElementUtil._val.bind(ele);
+		ele.html = ele.html || ElementUtil._html.bind(ele);
+		ele.onClick = ele.onClick || ElementUtil._onClick.bind(ele);
+		ele.onContextmenu = ele.onContextmenu || ElementUtil._onContextmenu.bind(ele);
+		ele.onChange = ele.onChange || ElementUtil._onChange.bind(ele);
+
+		return ele;
+	},
+
+	_appends (child) {
+		this.appendChild(child);
+		return this;
+	},
+
+	_appendTo (parent) {
+		parent.appendChild(this);
+		return this;
+	},
+
+	_prependTo (parent) {
+		parent.prepend(this);
+		return this;
+	},
+
+	_addClass (clazz) {
+		this.classList.add(clazz);
+		return this;
+	},
+
+	_removeClass (clazz) {
+		this.classList.remove(clazz);
+		return this;
+	},
+
+	_toggleClass (clazz, isActive) {
+		if (isActive == null) this.classList.toggle(clazz);
+		else if (isActive) this.classList.add(clazz);
+		else this.classList.remove(clazz);
+		return this;
+	},
+
+	_showVe () {
+		this.classList.remove("ve-hidden");
+		return this;
+	},
+
+	_hideVe () {
+		this.classList.add("ve-hidden");
+		return this;
+	},
+
+	_toggleVe (isActive) {
+		this.toggleClass("ve-hidden", isActive == null ? isActive : !isActive);
+		return this;
+	},
+
+	_empty () {
+		this.innerHTML = "";
+		return this;
+	},
+
+	_detach () {
+		if (this.parentElement) this.parentElement.removeChild(this);
+		return this;
+	},
+
+	_attr (name, value) {
+		this.setAttribute(name, value);
+		return this;
+	},
+
+	_html (html) {
+		this.innerHTML = html;
+		return this;
+	},
+
+	_onClick (fn) { return ElementUtil._onX(this, "click", fn); },
+	_onContextmenu (fn) { return ElementUtil._onX(this, "contextmenu", fn); },
+	_onChange (fn) { return ElementUtil._onX(this, "change", fn); },
+
+	_onX (ele, evtName, fn) { ele.addEventListener(evtName, fn); return ele; },
+
+	_val (val) {
+		if (val !== undefined) {
+			switch (this.tagName) {
+				case "SELECT": {
+					let selectedIndexNxt = -1;
+					for (let i = 0, len = this.options.length; i < len; ++i) {
+						if (this.options[i]?.value === val) { selectedIndexNxt = i; break; }
+					}
+					this.selectedIndex = selectedIndexNxt;
+					return this;
+				}
+
+				default: {
+					this.value = val;
+					return this;
+				}
+			}
+		}
+
+		switch (this.tagName) {
+			case "SELECT": return this.options[this.selectedIndex]?.value;
+
+			default: return this.value;
+		}
+	},
+}
+
+if (typeof window !== "undefined") window.e_ = ElementUtil.getOrModify;
+
 ObjUtil = {
 	mergeWith (source, target, fnMerge, options = {depth: 1}) {
 		if (!source || !target || typeof fnMerge !== "function") throw new Error("Must include a source, target and a fnMerge to handle merging");
@@ -741,8 +973,18 @@ MiscUtil = {
 	},
 
 	getOrSet (object, ...pathAndVal) {
-		const existing = MiscUtil.get(object, ...pathAndVal);
+		if (pathAndVal.length < 2) return null;
+		const existing = MiscUtil.get(object, ...pathAndVal.slice(0, -1));
 		return existing || MiscUtil.set(object, ...pathAndVal);
+	},
+
+	delete (object, ...path) {
+		if (object == null) return null;
+		for (let i = 0; i < path.length - 1; ++i) {
+			object = object[path[i]];
+			if (object == null) return object;
+		}
+		return delete object[path.last()];
 	},
 
 	mix: (superclass) => new MiscUtil._MixinBuilder(superclass),
@@ -1034,7 +1276,7 @@ MiscUtil = {
 	 * @param [opts]
 	 * @param [opts.keyBlacklist]
 	 * @param [opts.isAllowDeleteObjects] If returning `undefined` from an object handler should be treated as a delete.
-	 * @param [opts.isAllowDeleteArrays] (Unimplemented) // TODO
+	 * @param [opts.isAllowDeleteArrays] If returning `undefined` from an array handler should be treated as a delete.
 	 * @param [opts.isAllowDeleteBooleans] (Unimplemented) // TODO
 	 * @param [opts.isAllowDeleteNumbers] (Unimplemented) // TODO
 	 * @param [opts.isAllowDeleteStrings] (Unimplemented) // TODO
@@ -1045,23 +1287,9 @@ MiscUtil = {
 		opts = opts || {};
 		const keyBlacklist = opts.keyBlacklist || new Set();
 
-		function applyHandlers (handlers, obj, lastKey, stack) {
-			if (!(handlers instanceof Array)) handlers = [handlers];
-			handlers.forEach(h => {
-				const out = h(obj, lastKey, stack);
-				if (!opts.isNoModification) obj = out;
-			});
-			return obj;
-		}
-
-		function runHandlers (handlers, obj, lastKey, stack) {
-			if (!(handlers instanceof Array)) handlers = [handlers];
-			handlers.forEach(h => h(obj, lastKey, stack));
-		}
-
 		const fn = (obj, primitiveHandlers, lastKey, stack) => {
 			if (obj == null) {
-				if (primitiveHandlers.null) return applyHandlers(primitiveHandlers.null, obj, lastKey, stack);
+				if (primitiveHandlers.null) return MiscUtil._getWalker_applyHandlers({opts, handlers: primitiveHandlers.null, obj, lastKey, stack});
 				return obj;
 			}
 
@@ -1078,40 +1306,40 @@ MiscUtil = {
 			const to = typeof obj;
 			switch (to) {
 				case undefined:
-					if (primitiveHandlers.preUndefined) runHandlers(primitiveHandlers.preUndefined, obj, lastKey, stack);
+					if (primitiveHandlers.preUndefined) MiscUtil._getWalker_runHandlers({handlers: primitiveHandlers.preUndefined, obj, lastKey, stack});
 					if (primitiveHandlers.undefined) {
-						const out = applyHandlers(primitiveHandlers.undefined, obj, lastKey, stack);
+						const out = MiscUtil._getWalker_applyHandlers({opts, handlers: primitiveHandlers.undefined, obj, lastKey, stack});
 						if (!opts.isNoModification) obj = out;
 					}
-					if (primitiveHandlers.postUndefined) runHandlers(primitiveHandlers.postUndefined, obj, lastKey, stack);
+					if (primitiveHandlers.postUndefined) MiscUtil._getWalker_runHandlers({handlers: primitiveHandlers.postUndefined, obj, lastKey, stack});
 					return obj;
 				case "boolean":
-					if (primitiveHandlers.preBoolean) runHandlers(primitiveHandlers.preBoolean, obj, lastKey, stack);
+					if (primitiveHandlers.preBoolean) MiscUtil._getWalker_runHandlers({handlers: primitiveHandlers.preBoolean, obj, lastKey, stack});
 					if (primitiveHandlers.boolean) {
-						const out = applyHandlers(primitiveHandlers.boolean, obj, lastKey, stack);
+						const out = MiscUtil._getWalker_applyHandlers({opts, handlers: primitiveHandlers.boolean, obj, lastKey, stack});
 						if (!opts.isNoModification) obj = out;
 					}
-					if (primitiveHandlers.postBoolean) runHandlers(primitiveHandlers.postBoolean, obj, lastKey, stack);
+					if (primitiveHandlers.postBoolean) MiscUtil._getWalker_runHandlers({handlers: primitiveHandlers.postBoolean, obj, lastKey, stack});
 					return obj;
 				case "number":
-					if (primitiveHandlers.preNumber) runHandlers(primitiveHandlers.preNumber, obj, lastKey, stack);
+					if (primitiveHandlers.preNumber) MiscUtil._getWalker_runHandlers({handlers: primitiveHandlers.preNumber, obj, lastKey, stack});
 					if (primitiveHandlers.number) {
-						const out = applyHandlers(primitiveHandlers.number, obj, lastKey, stack);
+						const out = MiscUtil._getWalker_applyHandlers({opts, handlers: primitiveHandlers.number, obj, lastKey, stack});
 						if (!opts.isNoModification) obj = out;
 					}
-					if (primitiveHandlers.postNumber) runHandlers(primitiveHandlers.postNumber, obj, lastKey, stack);
+					if (primitiveHandlers.postNumber) MiscUtil._getWalker_runHandlers({handlers: primitiveHandlers.postNumber, obj, lastKey, stack});
 					return obj;
 				case "string":
-					if (primitiveHandlers.preString) runHandlers(primitiveHandlers.preString, obj, lastKey, stack);
+					if (primitiveHandlers.preString) MiscUtil._getWalker_runHandlers({handlers: primitiveHandlers.preString, obj, lastKey, stack});
 					if (primitiveHandlers.string) {
-						const out = applyHandlers(primitiveHandlers.string, obj, lastKey, stack);
+						const out = MiscUtil._getWalker_applyHandlers({opts, handlers: primitiveHandlers.string, obj, lastKey, stack});
 						if (!opts.isNoModification) obj = out;
 					}
-					if (primitiveHandlers.postString) runHandlers(primitiveHandlers.postString, obj, lastKey, stack);
+					if (primitiveHandlers.postString) MiscUtil._getWalker_runHandlers({handlers: primitiveHandlers.postString, obj, lastKey, stack});
 					return obj;
 				case "object": {
 					if (obj instanceof Array) {
-						if (primitiveHandlers.preArray) runHandlers(primitiveHandlers.preArray, obj, lastKey, stack);
+						if (primitiveHandlers.preArray) MiscUtil._getWalker_runHandlers({handlers: primitiveHandlers.preArray, obj, lastKey, stack});
 						if (opts.isDepthFirst) {
 							if (stack) stack.push(obj);
 							const out = obj.map(it => fn(it, primitiveHandlers, lastKey, stack));
@@ -1119,28 +1347,35 @@ MiscUtil = {
 							if (stack) stack.pop();
 
 							if (primitiveHandlers.array) {
-								const out = applyHandlers(primitiveHandlers.array, obj, lastKey, stack);
+								const out = MiscUtil._getWalker_applyHandlers({opts, handlers: primitiveHandlers.array, obj, lastKey, stack});
 								if (!opts.isNoModification) obj = out;
+							}
+							if (obj == null) {
+								if (!opts.isAllowDeleteArrays) throw new Error(`Array handler(s) returned null!`);
 							}
 						} else {
 							if (primitiveHandlers.array) {
-								const out = applyHandlers(primitiveHandlers.array, obj, lastKey, stack);
+								const out = MiscUtil._getWalker_applyHandlers({opts, handlers: primitiveHandlers.array, obj, lastKey, stack});
 								if (!opts.isNoModification) obj = out;
 							}
-							const out = obj.map(it => fn(it, primitiveHandlers, lastKey, stack));
-							if (!opts.isNoModification) obj = out;
+							if (obj != null) {
+								const out = obj.map(it => fn(it, primitiveHandlers, lastKey, stack));
+								if (!opts.isNoModification) obj = out;
+							} else {
+								if (!opts.isAllowDeleteArrays) throw new Error(`Array handler(s) returned null!`);
+							}
 						}
-						if (primitiveHandlers.postArray) runHandlers(primitiveHandlers.postArray, obj, lastKey, stack);
+						if (primitiveHandlers.postArray) MiscUtil._getWalker_runHandlers({handlers: primitiveHandlers.postArray, obj, lastKey, stack});
 						return obj;
 					} else {
-						if (primitiveHandlers.preObject) runHandlers(primitiveHandlers.preObject, obj, lastKey, stack);
+						if (primitiveHandlers.preObject) MiscUtil._getWalker_runHandlers({handlers: primitiveHandlers.preObject, obj, lastKey, stack});
 						if (opts.isDepthFirst) {
 							if (stack) stack.push(obj);
 							doObjectRecurse();
 							if (stack) stack.pop();
 
 							if (primitiveHandlers.object) {
-								const out = applyHandlers(primitiveHandlers.object, obj, lastKey, stack);
+								const out = MiscUtil._getWalker_applyHandlers({opts, handlers: primitiveHandlers.object, obj, lastKey, stack});
 								if (!opts.isNoModification) obj = out;
 							}
 							if (obj == null) {
@@ -1148,7 +1383,7 @@ MiscUtil = {
 							}
 						} else {
 							if (primitiveHandlers.object) {
-								const out = applyHandlers(primitiveHandlers.object, obj, lastKey, stack);
+								const out = MiscUtil._getWalker_applyHandlers({opts, handlers: primitiveHandlers.object, obj, lastKey, stack});
 								if (!opts.isNoModification) obj = out;
 							}
 							if (obj == null) {
@@ -1157,7 +1392,7 @@ MiscUtil = {
 								doObjectRecurse();
 							}
 						}
-						if (primitiveHandlers.postObject) runHandlers(primitiveHandlers.postObject, obj, lastKey, stack);
+						if (primitiveHandlers.postObject) MiscUtil._getWalker_runHandlers({handlers: primitiveHandlers.postObject, obj, lastKey, stack});
 						return obj;
 					}
 				}
@@ -1166,6 +1401,164 @@ MiscUtil = {
 		};
 
 		return {walk: fn};
+	},
+
+	_getWalker_applyHandlers ({opts, handlers, obj, lastKey, stack}) {
+		handlers = handlers instanceof Array ? handlers : [handlers];
+		handlers.forEach(h => {
+			const out = h(obj, lastKey, stack);
+			if (!opts.isNoModification) obj = out;
+		});
+		return obj;
+	},
+
+	_getWalker_runHandlers ({handlers, obj, lastKey, stack}) {
+		handlers = handlers instanceof Array ? handlers : [handlers];
+		handlers.forEach(h => h(obj, lastKey, stack));
+	},
+
+	/**
+	 * @param [opts]
+	 * @param [opts.keyBlacklist]
+	 * @param [opts.isAllowDeleteObjects] If returning `undefined` from an object handler should be treated as a delete.
+	 * @param [opts.isAllowDeleteArrays] If returning `undefined` from an array handler should be treated as a delete.
+	 * @param [opts.isAllowDeleteBooleans] (Unimplemented) // TODO
+	 * @param [opts.isAllowDeleteNumbers] (Unimplemented) // TODO
+	 * @param [opts.isAllowDeleteStrings] (Unimplemented) // TODO
+	 * @param [opts.isDepthFirst] If array/object recursion should occur before array/object primitive handling.
+	 * @param [opts.isNoModification] If the walker should not attempt to modify the data.
+	 */
+	getAsyncWalker (opts) {
+		opts = opts || {};
+		const keyBlacklist = opts.keyBlacklist || new Set();
+
+		const pFn = async (obj, primitiveHandlers, lastKey, stack) => {
+			if (obj == null) {
+				if (primitiveHandlers.null) return MiscUtil._getAsyncWalker_pApplyHandlers({opts, handlers: primitiveHandlers.null, obj, lastKey, stack});
+				return obj;
+			}
+
+			const pDoObjectRecurse = async () => {
+				await Object.keys(obj).pSerialAwaitMap(async k => {
+					const v = obj[k];
+					if (keyBlacklist.has(k)) return;
+					const out = await pFn(v, primitiveHandlers, k, stack);
+					if (!opts.isNoModification) obj[k] = out;
+				});
+			};
+
+			const to = typeof obj;
+			switch (to) {
+				case undefined:
+					if (primitiveHandlers.preUndefined) await MiscUtil._getAsyncWalker_pRunHandlers({handlers: primitiveHandlers.preUndefined, obj, lastKey, stack});
+					if (primitiveHandlers.undefined) {
+						const out = await MiscUtil._getAsyncWalker_pApplyHandlers({opts, handlers: primitiveHandlers.undefined, obj, lastKey, stack});
+						if (!opts.isNoModification) obj = out;
+					}
+					if (primitiveHandlers.postUndefined) await MiscUtil._getAsyncWalker_pRunHandlers({handlers: primitiveHandlers.postUndefined, obj, lastKey, stack});
+					return obj;
+				case "boolean":
+					if (primitiveHandlers.preBoolean) await MiscUtil._getAsyncWalker_pRunHandlers({handlers: primitiveHandlers.preBoolean, obj, lastKey, stack});
+					if (primitiveHandlers.boolean) {
+						const out = await MiscUtil._getAsyncWalker_pApplyHandlers({opts, handlers: primitiveHandlers.boolean, obj, lastKey, stack});
+						if (!opts.isNoModification) obj = out;
+					}
+					if (primitiveHandlers.postBoolean) await MiscUtil._getAsyncWalker_pRunHandlers({handlers: primitiveHandlers.postBoolean, obj, lastKey, stack});
+					return obj;
+				case "number":
+					if (primitiveHandlers.preNumber) await MiscUtil._getAsyncWalker_pRunHandlers({handlers: primitiveHandlers.preNumber, obj, lastKey, stack});
+					if (primitiveHandlers.number) {
+						const out = await MiscUtil._getAsyncWalker_pApplyHandlers({opts, handlers: primitiveHandlers.number, obj, lastKey, stack});
+						if (!opts.isNoModification) obj = out;
+					}
+					if (primitiveHandlers.postNumber) await MiscUtil._getAsyncWalker_pRunHandlers({handlers: primitiveHandlers.postNumber, obj, lastKey, stack});
+					return obj;
+				case "string":
+					if (primitiveHandlers.preString) await MiscUtil._getAsyncWalker_pRunHandlers({handlers: primitiveHandlers.preString, obj, lastKey, stack});
+					if (primitiveHandlers.string) {
+						const out = await MiscUtil._getAsyncWalker_pApplyHandlers({opts, handlers: primitiveHandlers.string, obj, lastKey, stack});
+						if (!opts.isNoModification) obj = out;
+					}
+					if (primitiveHandlers.postString) await MiscUtil._getAsyncWalker_pRunHandlers({handlers: primitiveHandlers.postString, obj, lastKey, stack});
+					return obj;
+				case "object": {
+					if (obj instanceof Array) {
+						if (primitiveHandlers.preArray) await MiscUtil._getAsyncWalker_pRunHandlers({handlers: primitiveHandlers.preArray, obj, lastKey, stack});
+						if (opts.isDepthFirst) {
+							if (stack) stack.push(obj);
+							const out = await obj.pSerialAwaitMap(it => pFn(it, primitiveHandlers, lastKey, stack));
+							if (!opts.isNoModification) obj = out;
+							if (stack) stack.pop();
+
+							if (primitiveHandlers.array) {
+								const out = await MiscUtil._getAsyncWalker_pApplyHandlers({opts, handlers: primitiveHandlers.array, obj, lastKey, stack});
+								if (!opts.isNoModification) obj = out;
+							}
+							if (obj == null) {
+								if (!opts.isAllowDeleteArrays) throw new Error(`Array handler(s) returned null!`);
+							}
+						} else {
+							if (primitiveHandlers.array) {
+								const out = await MiscUtil._getAsyncWalker_pApplyHandlers({opts, handlers: primitiveHandlers.array, obj, lastKey, stack});
+								if (!opts.isNoModification) obj = out;
+							}
+							if (obj != null) {
+								const out = await obj.pSerialAwaitMap(it => pFn(it, primitiveHandlers, lastKey, stack));
+								if (!opts.isNoModification) obj = out;
+							} else {
+								if (!opts.isAllowDeleteArrays) throw new Error(`Array handler(s) returned null!`);
+							}
+						}
+						if (primitiveHandlers.postArray) await MiscUtil._getAsyncWalker_pRunHandlers({handlers: primitiveHandlers.postArray, obj, lastKey, stack});
+						return obj;
+					} else {
+						if (primitiveHandlers.preObject) await MiscUtil._getAsyncWalker_pRunHandlers({handlers: primitiveHandlers.preObject, obj, lastKey, stack});
+						if (opts.isDepthFirst) {
+							if (stack) stack.push(obj);
+							await pDoObjectRecurse();
+							if (stack) stack.pop();
+
+							if (primitiveHandlers.object) {
+								const out = await MiscUtil._getAsyncWalker_pApplyHandlers({opts, handlers: primitiveHandlers.object, obj, lastKey, stack});
+								if (!opts.isNoModification) obj = out;
+							}
+							if (obj == null) {
+								if (!opts.isAllowDeleteObjects) throw new Error(`Object handler(s) returned null!`);
+							}
+						} else {
+							if (primitiveHandlers.object) {
+								const out = await MiscUtil._getAsyncWalker_pApplyHandlers({opts, handlers: primitiveHandlers.object, obj, lastKey, stack});
+								if (!opts.isNoModification) obj = out;
+							}
+							if (obj == null) {
+								if (!opts.isAllowDeleteObjects) throw new Error(`Object handler(s) returned null!`);
+							} else {
+								await pDoObjectRecurse();
+							}
+						}
+						if (primitiveHandlers.postObject) await MiscUtil._getAsyncWalker_pRunHandlers({handlers: primitiveHandlers.postObject, obj, lastKey, stack});
+						return obj;
+					}
+				}
+				default: throw new Error(`Unhandled type "${to}"`);
+			}
+		};
+
+		return {pWalk: pFn};
+	},
+
+	async _getAsyncWalker_pApplyHandlers ({opts, handlers, obj, lastKey, stack}) {
+		handlers = handlers instanceof Array ? handlers : [handlers];
+		await handlers.pSerialAwaitMap(async pH => {
+			const out = await pH(obj, lastKey, stack);
+			if (!opts.isNoModification) obj = out;
+		});
+		return obj;
+	},
+
+	async _getAsyncWalker_pRunHandlers ({handlers, obj, lastKey, stack}) {
+		handlers = handlers instanceof Array ? handlers : [handlers];
+		await handlers.pSerialAwaitMap(pH => pH(obj, lastKey, stack));
 	},
 
 	pDefer (fn) {
@@ -1243,36 +1636,14 @@ ContextUtil = {
 
 		this._userData = null;
 
-		const $elesAction = this._actions.map(it => {
-			if (it == null) return $(`<div class="my-1 w-100 ui-ctx__divider"></div>`);
+		this.remove = function () { if (this._$ele) this._$ele.remove(); }
 
-			const $row = $$`<div class="py-1 px-5 ui-ctx__row ${it.isDisabled ? "disabled" : ""} ${it.style || ""}">${it.text}</div>`
-				.click(async evt => {
-					if (it.isDisabled) return;
-
-					evt.preventDefault();
-					evt.stopPropagation();
-
-					this.close();
-
-					const result = await it.fnAction(evt, this._userData);
-					if (this._resolveResult) this._resolveResult(result);
-				});
-			if (it.title) $row.title(it.title);
-
-			return $row;
-		});
-
-		this._$ele = $$`<div class="flex-col ui-ctx__wrp py-2">${$elesAction}</div>`
-			.hideVe()
-			.appendTo(document.body);
-
-		this.remove = function () { this._$ele.remove(); }
-
-		this.width = function () { return this._$ele.width(); }
-		this.height = function () { return this._$ele.height(); }
+		this.width = function () { return this._$ele ? this._$ele.width() : undefined; }
+		this.height = function () { return this._$ele ? this._$ele.height() : undefined; }
 
 		this.pOpen = function (evt, userData) {
+			this._initLazy();
+
 			if (this._resolveResult) this._resolveResult(null);
 			this._pResult = new Promise(resolve => {
 				this._resolveResult = resolve;
@@ -1289,7 +1660,35 @@ ContextUtil = {
 
 			return this._pResult;
 		}
-		this.close = function () { this._$ele.hideVe(); }
+		this.close = function () { if (this._$ele) this._$ele.hideVe(); }
+
+		this._initLazy = function () {
+			if (this._$ele) return;
+
+			const $elesAction = this._actions.map(it => {
+				if (it == null) return $(`<div class="my-1 w-100 ui-ctx__divider"></div>`);
+
+				const $row = $$`<div class="py-1 px-5 ui-ctx__row ${it.isDisabled ? "disabled" : ""} ${it.style || ""}">${it.text}</div>`
+					.click(async evt => {
+						if (it.isDisabled) return;
+
+						evt.preventDefault();
+						evt.stopPropagation();
+
+						this.close();
+
+						const result = await it.fnAction(evt, this._userData);
+						if (this._resolveResult) this._resolveResult(result);
+					});
+				if (it.title) $row.title(it.title);
+
+				return $row;
+			});
+
+			this._$ele = $$`<div class="flex-col ui-ctx__wrp py-2">${$elesAction}</div>`
+				.hideVe()
+				.appendTo(document.body);
+		};
 
 		this._getMenuPosition = function (evt, axis) {
 			const {fnMenuSize, propMousePos, fnWindowSize, fnScrollDir} = axis === "x"
@@ -1347,6 +1746,10 @@ UrlUtil = {
 		const encoder = UrlUtil.URL_TO_HASH_BUILDER[curPage];
 		if (!encoder) throw new Error(`No encoder found for page ${curPage}`);
 		return encoder(obj);
+	},
+
+	decodeHash (hash) {
+		return hash.split(HASH_LIST_SEP).map(it => decodeURIComponent(it));
 	},
 
 	getCurrentPage () {
@@ -1456,11 +1859,10 @@ UrlUtil = {
 	},
 
 	class: {
-		getIndexedEntries (cls) {
+		getIndexedClassEntries (cls) {
 			const out = [];
-			let scFeatureI = 0;
+
 			(cls.classFeatures || []).forEach((lvlFeatureList, ixLvl) => {
-				// class features
 				lvlFeatureList
 					// don't add "you gain a subclass feature" or ASI's
 					.filter(feature => !feature.gainSubclassFeature
@@ -1481,57 +1883,56 @@ UrlUtil = {
 							level: ixLvl + 1,
 						})
 					});
+			});
 
-				// subclass features
-				const ixGainSubclassFeatures = lvlFeatureList.findIndex(feature => feature.gainSubclassFeature);
-				if (~ixGainSubclassFeatures) {
-					cls.subclasses.forEach(sc => {
-						const features = ((sc.subclassFeatures || [])[scFeatureI] || []);
-						sc.source = sc.source || cls.source; // default to class source if required
-						const tempStack = [];
-						features.forEach(feature => {
-							const subclassFeatureHash = `${UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_CLASSES](cls)}${HASH_PART_SEP}${UrlUtil.getClassesPageStatePart({subclass: sc, feature: {ixLevel: ixLvl, ixFeature: ixGainSubclassFeatures}})}`;
-							const name = Renderer.findName(feature);
-							if (!name) { // tolerate missing names in homebrew
-								if (BrewUtil.hasSourceJson(sc.source)) return;
-								else throw new Error("Subclass feature had no name!");
-							}
-							tempStack.push({
-								_type: "subclassFeature",
-								name,
+			return out;
+		},
+
+		getIndexedSubclassEntries (sc) {
+			const out = [];
+
+			const lvlFeatures = sc.subclassFeatures || [];
+			sc.source = sc.source || sc.classSource; // default to class source if required
+
+			lvlFeatures.forEach(lvlFeature => {
+				lvlFeature.forEach((feature, ixFeature) => {
+					const subclassFeatureHash = `${UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_CLASSES]({name: sc.className, source: sc.classSource})}${HASH_PART_SEP}${UrlUtil.getClassesPageStatePart({subclass: sc, feature: {ixLevel: feature.level - 1, ixFeature: ixFeature}})}`;
+
+					const name = Renderer.findName(feature);
+					if (!name) { // tolerate missing names in homebrew
+						if (BrewUtil.hasSourceJson(sc.source)) return;
+						else throw new Error("Subclass feature had no name!");
+					}
+					out.push({
+						_type: "subclassFeature",
+						name,
+						subclassName: sc.name,
+						subclassShortName: sc.shortName,
+						source: sc.source.source || sc.source,
+						hash: subclassFeatureHash,
+						entry: feature,
+						level: feature.level,
+					});
+
+					if (feature.entries) {
+						const namedFeatureParts = feature.entries.filter(it => it.name);
+						namedFeatureParts.forEach(it => {
+							if (out.find(existing => it.name === existing.name && feature.level === existing.level)) return;
+							out.push({
+								_type: "subclassFeaturePart",
+								name: it.name,
 								subclassName: sc.name,
 								subclassShortName: sc.shortName,
 								source: sc.source.source || sc.source,
 								hash: subclassFeatureHash,
 								entry: feature,
-								level: ixLvl + 1,
+								level: feature.level,
 							});
-
-							if (feature.entries) {
-								const namedFeatureParts = feature.entries.filter(it => it.name);
-								namedFeatureParts.forEach(it => {
-									const lvl = ixLvl + 1;
-									if (tempStack.find(existing => it.name === existing.name && lvl === existing.level)) return;
-									tempStack.push({
-										_type: "subclassFeaturePart",
-										name: it.name,
-										subclassName: sc.name,
-										subclassShortName: sc.shortName,
-										source: sc.source.source || sc.source,
-										hash: subclassFeatureHash,
-										entry: feature,
-										level: lvl,
-									});
-								});
-							}
 						});
-						out.push(...tempStack);
-					});
-					scFeatureI++;
-				} else if (ixGainSubclassFeatures.length > 1) {
-					setTimeout(() => { throw new Error(`Multiple subclass features gained at level ${ixLvl + 1} for class "${cls.name}" from source "${cls.source}"!`) });
-				}
+					}
+				});
 			});
+
 			return out;
 		},
 	},
@@ -1587,10 +1988,12 @@ UrlUtil.PG_NAMES = "names.html";
 UrlUtil.PG_DM_SCREEN = "dmscreen.html";
 UrlUtil.PG_CR_CALCULATOR = "crcalculator.html";
 UrlUtil.PG_ENCOUNTERGEN = "encountergen.html";
-UrlUtil.PG_LOOTGEN = "encountergen.html";
+UrlUtil.PG_LOOTGEN = "lootgen.html";
 UrlUtil.PG_TEXT_CONVERTER = "converter.html";
 UrlUtil.PG_CHANGELOG = "changelog.html";
 UrlUtil.PG_CHAR_CREATION_OPTIONS = "charcreationoptions.html";
+UrlUtil.PG_RECIPES = "recipes.html";
+UrlUtil.PG_CLASS_SUBCLASS_FEATURES = "classfeatures.html";
 
 UrlUtil.URL_TO_HASH_BUILDER = {};
 UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_BESTIARY] = (it) => UrlUtil.encodeForHash([it.name, it.source]);
@@ -1616,6 +2019,8 @@ UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_VEHICLES] = (it) => UrlUtil.encodeForHash
 UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_ACTIONS] = (it) => UrlUtil.encodeForHash([it.name, it.source]);
 UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_LANGUAGES] = (it) => UrlUtil.encodeForHash([it.name, it.source]);
 UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_CHAR_CREATION_OPTIONS] = (it) => UrlUtil.encodeForHash([it.name, it.source]);
+UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_RECIPES] = (it) => `${UrlUtil.encodeForHash([it.name, it.source])}${it._scaleFactor ? `${HASH_PART_SEP}${VeCt.HASH_SCALED}${HASH_SUB_KV_SEP}${it._scaleFactor}` : ""}`;
+UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_CLASS_SUBCLASS_FEATURES] = (it) => (it.__prop === "subclassFeature" || it.subclassSource) ? UrlUtil.URL_TO_HASH_BUILDER["subclassFeature"](it) : UrlUtil.URL_TO_HASH_BUILDER["classFeature"](it);
 // region Fake pages (props)
 UrlUtil.URL_TO_HASH_BUILDER["subclass"] = it => {
 	const hashParts = [
@@ -1628,6 +2033,8 @@ UrlUtil.URL_TO_HASH_BUILDER["classFeature"] = (it) => UrlUtil.encodeForHash([it.
 UrlUtil.URL_TO_HASH_BUILDER["subclassFeature"] = (it) => UrlUtil.encodeForHash([it.name, it.className, it.classSource, it.subclassShortName, it.subclassSource, it.level, it.source]);
 UrlUtil.URL_TO_HASH_BUILDER["legendaryGroup"] = (it) => UrlUtil.encodeForHash([it.name, it.source]);
 UrlUtil.URL_TO_HASH_BUILDER["legendarygroup"] = UrlUtil.URL_TO_HASH_BUILDER["legendaryGroup"];
+UrlUtil.URL_TO_HASH_BUILDER["itemEntry"] = (it) => UrlUtil.encodeForHash([it.name, it.source]);
+UrlUtil.URL_TO_HASH_BUILDER["itementry"] = UrlUtil.URL_TO_HASH_BUILDER["itemEntry"];
 // endregion
 
 UrlUtil.PG_TO_NAME = {};
@@ -1668,6 +2075,8 @@ UrlUtil.PG_TO_NAME[UrlUtil.PG_LOOTGEN] = "Loot Generator";
 UrlUtil.PG_TO_NAME[UrlUtil.PG_TEXT_CONVERTER] = "Text Converter";
 UrlUtil.PG_TO_NAME[UrlUtil.PG_CHANGELOG] = "Changelog";
 UrlUtil.PG_TO_NAME[UrlUtil.PG_CHAR_CREATION_OPTIONS] = "Other Character Creation Options";
+UrlUtil.PG_TO_NAME[UrlUtil.PG_RECIPES] = "Recipes";
+UrlUtil.PG_TO_NAME[UrlUtil.PG_CLASS_SUBCLASS_FEATURES] = "Class & Subclass Features";
 
 UrlUtil.CAT_TO_PAGE = {};
 UrlUtil.CAT_TO_PAGE[Parser.CAT_ID_CREATURE] = UrlUtil.PG_BESTIARY;
@@ -1718,10 +2127,14 @@ UrlUtil.CAT_TO_PAGE[Parser.CAT_ID_BOOK] = UrlUtil.PG_BOOK;
 UrlUtil.CAT_TO_PAGE[Parser.CAT_ID_PAGE] = null;
 UrlUtil.CAT_TO_PAGE[Parser.CAT_ID_LEGENDARY_GROUP] = null;
 UrlUtil.CAT_TO_PAGE[Parser.CAT_ID_CHAR_CREATION_OPTIONS] = UrlUtil.PG_CHAR_CREATION_OPTIONS;
+UrlUtil.CAT_TO_PAGE[Parser.CAT_ID_RECIPES] = UrlUtil.PG_RECIPES;
 
 UrlUtil.CAT_TO_HOVER_PAGE = {};
 UrlUtil.CAT_TO_HOVER_PAGE[Parser.CAT_ID_CLASS_FEATURE] = "classfeature";
 UrlUtil.CAT_TO_HOVER_PAGE[Parser.CAT_ID_SUBCLASS_FEATURE] = "subclassfeature";
+
+UrlUtil.HASH_START_CREATURE_SCALED = `${VeCt.HASH_SCALED}${HASH_SUB_KV_SEP}`;
+UrlUtil.HASH_START_CREATURE_SCALED_SUMMON = `${VeCt.HASH_SCALED_SUMMON}${HASH_SUB_KV_SEP}`;
 
 if (!IS_DEPLOYED && !IS_VTT && typeof window !== "undefined") {
 	// for local testing, hotkey to get a link to the current page on the main site
@@ -1955,33 +2368,28 @@ DataUtil = {
 	},
 
 	_pDoMetaMerge_handleCopyProp (prop, arr, entry, options) {
-		if (entry._copy) {
-			switch (prop) {
-				case "monster": return DataUtil.monster.pMergeCopy(arr, entry, options);
-				case "monsterFluff": return DataUtil.monsterFluff.pMergeCopy(arr, entry, options);
-				case "spell": return DataUtil.spell.pMergeCopy(arr, entry, options);
-				case "spellFluff": return DataUtil.spellFluff.pMergeCopy(arr, entry, options);
-				case "item": return DataUtil.item.pMergeCopy(arr, entry, options);
-				case "itemFluff": return DataUtil.itemFluff.pMergeCopy(arr, entry, options);
-				case "background": return DataUtil.background.pMergeCopy(arr, entry, options);
-				case "race": return DataUtil.race.pMergeCopy(arr, entry, options);
-				case "raceFluff": return DataUtil.raceFluff.pMergeCopy(arr, entry, options);
-				case "deity": return DataUtil.deity.pMergeCopy(arr, entry, options);
-				default: throw new Error(`No dependency _copy merge strategy specified for property "${prop}"`);
-			}
-		}
+		if (!entry._copy) return;
+		const fnMergeCopy = DataUtil[prop]?.pMergeCopy;
+		if (!fnMergeCopy) throw new Error(`No dependency _copy merge strategy specified for property "${prop}"`);
+		return fnMergeCopy(arr, entry, options);
 	},
 
 	async _pDoMetaMerge (ident, data, options) {
 		if (data._meta) {
-			if (data._meta.dependencies) {
-				await Promise.all(Object.entries(data._meta.dependencies).map(async ([prop, sources]) => {
-					if (!data[prop]) return; // if e.g. monster dependencies are declared, but there are no monsters to merge with, bail out
+			const loadedSourceIds = new Set();
 
-					const toLoads = await Promise.all(sources.map(async source => DataUtil.pGetLoadableByMeta(prop, source)));
-					const dependencyData = await Promise.all(toLoads.map(toLoad => DataUtil.loadJSON(toLoad)));
-					const flatDependencyData = dependencyData.map(dd => dd[prop]).flat();
-					await Promise.all(data[prop].map(entry => DataUtil._pDoMetaMerge_handleCopyProp(prop, flatDependencyData, entry, options)));
+			if (data._meta.dependencies) {
+				await Promise.all(Object.entries(data._meta.dependencies).map(async ([dataProp, sourceIds]) => {
+					sourceIds.forEach(sourceId => loadedSourceIds.add(sourceId));
+
+					if (!data[dataProp]) return; // if e.g. monster dependencies are declared, but there are no monsters to merge with, bail out
+
+					const isHasInternalCopies = (data._meta.internalCopies || []).includes(dataProp);
+
+					const dependencyData = await Promise.all(sourceIds.map(sourceId => DataUtil.pLoadByMeta(dataProp, sourceId)));
+
+					const flatDependencyData = dependencyData.map(dd => dd[dataProp]).flat();
+					await Promise.all(data[dataProp].map(entry => DataUtil._pDoMetaMerge_handleCopyProp(dataProp, flatDependencyData, entry, {...options, isErrorOnMissing: !isHasInternalCopies})));
 				}));
 				delete data._meta.dependencies;
 			}
@@ -1990,31 +2398,57 @@ DataUtil = {
 				for (const prop of data._meta.internalCopies) {
 					if (!data[prop]) continue;
 					for (const entry of data[prop]) {
-						await DataUtil._pDoMetaMerge_handleCopyProp(prop, data[prop], entry, options);
+						await DataUtil._pDoMetaMerge_handleCopyProp(prop, data[prop], entry, {...options, isErrorOnMissing: true});
 					}
 				}
 				delete data._meta.internalCopies;
 			}
+
+			// Load any other included data
+			if (data._meta.includes) {
+				const includesData = await Promise.all(Object.entries(data._meta.includes).map(async ([dataProp, sourceIds]) => {
+					// Avoid re-loading any sources we already loaded as dependencies
+					sourceIds = sourceIds.filter(it => !loadedSourceIds.has(it));
+
+					sourceIds.forEach(sourceId => loadedSourceIds.add(sourceId));
+
+					// This loads the brew as a side-effect
+					const includesData = await Promise.all(sourceIds.map(sourceId => DataUtil.pLoadByMeta(dataProp, sourceId)));
+
+					const flatIncludesData = includesData.map(dd => dd[dataProp]).flat();
+					return {dataProp, flatIncludesData};
+				}));
+				delete data._meta.includes;
+
+				// Add the includes data to our current data
+				includesData.forEach(({dataProp, flatIncludesData}) => {
+					data[dataProp] = [...data[dataProp] || [], ...flatIncludesData];
+				});
+			}
 		}
 
 		if (data._meta && data._meta.otherSources) {
-			await Promise.all(Object.entries(data._meta.otherSources).map(async ([prop, sources]) => {
-				const toLoads = await Promise.all(Object.entries(sources).map(async ([source, findWith]) => ({
+			await Promise.all(Object.entries(data._meta.otherSources).map(async ([dataProp, sourceIds]) => {
+				const additionalData = await Promise.all(Object.entries(sourceIds).map(async ([sourceId, findWith]) => ({
 					findWith,
-					url: await DataUtil.pGetLoadableByMeta(prop, source),
+					dataOther: await DataUtil.pLoadByMeta(dataProp, sourceId),
 				})));
 
-				const additionalData = await Promise.all(toLoads.map(async ({findWith, url}) => ({findWith, sourceData: await DataUtil.loadJSON(url)})));
-
-				additionalData.forEach(dataAndSource => {
-					const findWith = dataAndSource.findWith;
-					const ad = dataAndSource.sourceData;
-					const toAppend = ad[prop].filter(it => it.otherSources && it.otherSources.find(os => os.source === findWith));
-					if (toAppend.length) data[prop] = (data[prop] || []).concat(toAppend);
+				additionalData.forEach(({findWith, dataOther}) => {
+					const toAppend = dataOther[dataProp].filter(it => it.otherSources && it.otherSources.find(os => os.source === findWith));
+					if (toAppend.length) data[dataProp] = (data[dataProp] || []).concat(toAppend);
 				});
 			}));
 			delete data._meta.otherSources;
 		}
+
+		const props = Object.keys(data);
+		for (const prop of props) {
+			if (!data[prop] || !(data[prop] instanceof Array) || !data[prop].length) continue;
+
+			if (DataUtil[prop]?.pPostProcess) await DataUtil[prop]?.pPostProcess(data);
+		}
+
 		DataUtil._merged[ident] = data;
 	},
 
@@ -2034,9 +2468,13 @@ DataUtil = {
 		return `${toCsv(headers)}\n${rows.map(r => toCsv(r)).join("\n")}`;
 	},
 
-	userDownload (filename, data) {
-		if (typeof data !== "string") data = JSON.stringify(data, null, "\t");
-		return DataUtil._userDownload(`${filename}.json`, data, "text/json");
+	userDownload (filename, data, {fileType = null, isSipAdditionalMetadata = false} = {}) {
+		filename = `${filename}.json`
+		if (isSipAdditionalMetadata || data instanceof Array) return DataUtil._userDownload(filename, JSON.stringify(data, null, "\t"), "text/json");
+
+		data = {siteVersion: VERSION_NUMBER, ...data};
+		if (fileType != null) data = {fileType, ...data};
+		return DataUtil._userDownload(filename, JSON.stringify(data, null, "\t"), "text/json");
 	},
 
 	userDownloadText (filename, string) {
@@ -2055,20 +2493,41 @@ DataUtil = {
 		document.body.removeChild(a);
 	},
 
-	pUserUpload () {
+	/** Always returns an array of files, even in "single" mode. */
+	pUserUpload ({isMultiple = false, expectedFileType = null} = {}) {
 		return new Promise(resolve => {
-			const $iptAdd = $(`<input type="file" accept=".json" style="position: fixed; top: -100px; left: -100px; display: none;">`).on("change", (evt) => {
+			const $iptAdd = $(`<input type="file" ${isMultiple ? "multiple" : ""} accept=".json" style="position: fixed; top: -100px; left: -100px; display: none;">`).on("change", (evt) => {
 				const input = evt.target;
 
 				const reader = new FileReader();
-				reader.onload = () => {
+				let readIndex = 0;
+				const out = [];
+				reader.onload = async () => {
+					const name = input.files[readIndex - 1].name;
+
 					const text = reader.result;
 					const json = JSON.parse(text);
-					resolve(json);
+
+					const isSkipFile = expectedFileType != null && json.fileType && json.fileType !== expectedFileType && !(await InputUiUtil.pGetUserBoolean({
+						textYes: "Yes",
+						textNo: "Cancel",
+						title: "File Type Mismatch",
+						htmlDescription: `The file "${name}" has the type "${json.fileType}" when the expected file type was "${expectedFileType}".<br>Are you sure you want to upload this file?`,
+					}));
+
+					if (!isSkipFile) {
+						delete json.fileType;
+						delete json.siteVersion;
+
+						out.push(json);
+					}
+
+					if (input.files[readIndex]) reader.readAsText(input.files[readIndex++]);
+					else resolve(out);
 				};
 
-				reader.readAsText(input.files[0]);
-			}).appendTo($(`body`));
+				reader.readAsText(input.files[readIndex++]);
+			}).appendTo(document.body);
 			$iptAdd.click();
 		});
 	},
@@ -2087,59 +2546,111 @@ DataUtil = {
 				obj.forEach(it => DataUtil.__cleanJsonObject(it));
 			} else {
 				Object.entries(obj).forEach(([k, v]) => {
-					if (k.startsWith("_") || k === "customHashId") delete obj[k];
+					if ((k.startsWith("_") && k !== "_") || k === "customHashId") delete obj[k];
 					else DataUtil.__cleanJsonObject(v);
 				});
 			}
 		}
 	},
 
-	async pGetLoadableByMeta (key, value) {
-		// TODO(future) allow value to be e.g. a string (assumed to be an official data's source); an object e.g. `{type: external, url: <>}`,...
-		// TODO(future) have this return the data, not a URL
-		// TODO(future) handle homebrew dependencies/refactor "monster" and "spell" + have this be the general form.
-		switch (key) {
-			case "monster": {
-				const index = await DataUtil.loadJSON(`${Renderer.get().baseUrl}data/bestiary/index.json`);
-				if (index[value]) return `${Renderer.get().baseUrl}data/bestiary/${index[value]}`;
-				const brewIndex = await DataUtil.brew.pLoadSourceIndex();
-				if (!brewIndex[value]) throw new Error(`Bestiary index did not contain source "${value}"`);
-				const urlRoot = await StorageUtil.pGet(`HOMEBREW_CUSTOM_REPO_URL`);
-				const brewUrl = DataUtil.brew.getFileUrl(brewIndex[value], urlRoot);
-				await BrewUtil.pDoHandleBrewJson((await DataUtil.loadJSON(brewUrl)), UrlUtil.getCurrentPage());
-				return brewUrl;
+	_MULTI_SOURCE_PROP_TO_DIR: {
+		"monster": "bestiary",
+		"monsterFluff": "bestiary",
+		"spell": "spells",
+		"spellFluff": "spells",
+		"class": "class",
+		"subclass": "class",
+	},
+	_MULTI_SOURCE_PROP_TO_INDEX_NAME: {
+		"monster": "index.json",
+		"spell": "index.json",
+		"monsterFluff": "fluff-index.json",
+		"spellFluff": "fluff-index.json",
+		"class": "index.json",
+		"subclass": "index.json",
+	},
+	async pLoadByMeta (prop, source) {
+		// TODO(future) expand support
+
+		switch (prop) {
+			// region Multi-source
+			case "monster":
+			case "spell":
+			case "monsterFluff":
+			case "spellFluff":
+			case "class":
+			case "subclass": {
+				const baseUrlPart = `${Renderer.get().baseUrl}data/${DataUtil._MULTI_SOURCE_PROP_TO_DIR[prop]}`;
+				const index = await DataUtil.loadJSON(`${baseUrlPart}/${DataUtil._MULTI_SOURCE_PROP_TO_INDEX_NAME[prop]}`);
+				if (index[source]) return DataUtil.loadJSON(`${baseUrlPart}/${index[source]}`);
+
+				return DataUtil.pLoadBrewBySource(source);
 			}
-			case "monsterFluff": {
-				const index = await DataUtil.loadJSON(`${Renderer.get().baseUrl}data/bestiary/fluff-index.json`);
-				if (!index[value]) throw new Error(`Bestiary fluff index did not contain source "${value}"`);
-				return `${Renderer.get().baseUrl}data/bestiary/${index[value]}`;
-			}
-			case "spell": {
-				const index = await DataUtil.loadJSON(`${Renderer.get().baseUrl}data/spells/index.json`);
-				if (index[value]) return `${Renderer.get().baseUrl}data/spells/${index[value]}`;
-				const brewIndex = await DataUtil.brew.pLoadSourceIndex();
-				if (!brewIndex[value]) throw new Error(`Spell index did not contain source "${value}"`);
-				const urlRoot = await StorageUtil.pGet(`HOMEBREW_CUSTOM_REPO_URL`);
-				const brewUrl = DataUtil.brew.getFileUrl(brewIndex[value], urlRoot);
-				await BrewUtil.pDoHandleBrewJson((await DataUtil.loadJSON(brewUrl)), UrlUtil.getCurrentPage());
-				return brewUrl;
-			}
-			case "spellFluff": {
-				const index = await DataUtil.loadJSON(`${Renderer.get().baseUrl}data/spells/fluff-index.json`);
-				if (!index[value]) throw new Error(`Spell fluff index did not contain source "${value}"`);
-				return `${Renderer.get().baseUrl}data/spells/${index[value]}`;
-			}
-			// case "item":
+			// endregion
+
+			// region Standard
 			// case "itemFluff":
-			case "background": return `${Renderer.get().baseUrl}data/backgrounds.json`;
-			// case "race":
-			case "raceFluff": return `${Renderer.get().baseUrl}data/fluff-races.json`;
 			// case "deity":
-			default: throw new Error(`Could not get loadable URL for \`${JSON.stringify({key, value})}\``);
+			case "background":
+			case "optionalfeature":
+			case "raceFluff": {
+				let url;
+				switch (prop) {
+					case "background": url = `${Renderer.get().baseUrl}data/backgrounds.json`; break;
+					case "optionalfeature": url = `${Renderer.get().baseUrl}data/optionalfeatures.json`; break;
+					case "raceFluff": url = `${Renderer.get().baseUrl}data/fluff-races.json`; break;
+				}
+
+				const data = await DataUtil.loadJSON(url);
+				if (data[prop] && data[prop].some(it => it.source === source)) return data;
+
+				return DataUtil.pLoadBrewBySource(source);
+			}
+			// endregion
+
+			// region Special
+			// case "item":
+			case "race": {
+				const data = await DataUtil.race.loadJSON({isAddBaseRaces: true});
+				if (data[prop] && data[prop].some(it => it.source === source)) return data;
+				return DataUtil.pLoadBrewBySource(source);
+			}
+			// endregion
+
+			default: throw new Error(`Could not get loadable URL for \`${JSON.stringify({key: prop, value: source})}\``);
 		}
 	},
 
+	// TODO(Future) Note that a case-insensitive variant of this is built into the renderer, which could be factored out
+	//   to this level if required.
+	async pLoadBrewBySource (source, {isSilent = true} = {}) {
+		const brewIndex = await DataUtil.brew.pLoadSourceIndex();
+		if (!brewIndex[source]) {
+			if (isSilent) return null;
+			throw new Error(`Neither base nor brew index contained source "${source}"`);
+		}
+
+		const urlRoot = await StorageUtil.pGet(`HOMEBREW_CUSTOM_REPO_URL`);
+		const brewUrl = DataUtil.brew.getFileUrl(brewIndex[source], urlRoot);
+		await BrewUtil.pDoHandleBrewJson((await DataUtil.loadJSON(brewUrl)), UrlUtil.getCurrentPage());
+		return DataUtil.loadJSON(brewUrl);
+	},
+
+	// region Dbg
+	dbg: {
+		isTrackCopied: false,
+	},
+	// endregion
+
 	generic: {
+		_MERGE_REQUIRES_PRESERVE_BASE: {
+			page: true,
+			otherSources: true,
+			srd: true,
+			hasFluff: true,
+			hasFluffImages: true,
+		},
+
 		_walker_replaceTxt: null,
 
 		/**
@@ -2168,7 +2679,16 @@ DataUtil = {
 			if (entry._copy) {
 				const hash = UrlUtil.URL_TO_HASH_BUILDER[page](entry._copy);
 				const it = impl._mergeCache[hash] || DataUtil.generic._pMergeCopy_search(impl, page, entryList, entry, options);
-				if (!it) return;
+
+				if (!it) {
+					if (options.isErrorOnMissing) {
+						// In development/script mode, throw an exception
+						if (!IS_DEPLOYED && !IS_VTT) throw new Error(`Could not find "${page}" entity "${entry._copy.name}" ("${entry._copy.source}") to copy in copier "${entry.name}" ("${entry.source}")`);
+					}
+					return;
+				}
+
+				if (DataUtil.dbg.isTrackCopied) it.dbg_isCopied = true;
 				// Handle recursive copy
 				if (it._copy) await DataUtil.generic._pMergeCopy(impl, page, entryList, it, options);
 				return DataUtil.generic._pApplyCopy(impl, MiscUtil.copy(it), entry, options);
@@ -2226,7 +2746,7 @@ DataUtil = {
 			Object.keys(copyFrom).forEach(k => {
 				if (copyTo[k] === null) return delete copyTo[k];
 				if (copyTo[k] == null) {
-					if (impl._MERGE_REQUIRES_PRESERVE[k]) {
+					if (DataUtil.generic._MERGE_REQUIRES_PRESERVE_BASE[k] || impl._MERGE_REQUIRES_PRESERVE[k]) {
 						if (copyTo._copy._preserve && copyTo._copy._preserve[k]) copyTo[k] = copyFrom[k];
 					} else copyTo[k] = copyFrom[k];
 				}
@@ -2653,10 +3173,8 @@ DataUtil = {
 			soundClip: true,
 			page: true,
 			altArt: true,
-			otherSources: true,
 			variant: true,
 			dragonCastingColor: true,
-			srd: true,
 			hasToken: true,
 		},
 		_mergeCache: {},
@@ -2665,23 +3183,18 @@ DataUtil = {
 		},
 
 		async pPreloadMeta () {
-			if (DataUtil.monster._isMetaLoaded) return;
-
-			const legendaryGroups = await DataUtil.legendaryGroup.pLoadAll();
-			DataUtil.monster.populateMetaReference({legendaryGroup: legendaryGroups});
-			DataUtil.monster._isMetaLoaded = true;
+			DataUtil.monster._pLoadMeta = DataUtil.monster._pLoadMeta || ((async () => {
+				const legendaryGroups = await DataUtil.legendaryGroup.pLoadAll();
+				DataUtil.monster.populateMetaReference({legendaryGroup: legendaryGroups});
+			})());
+			await DataUtil.monster._pLoadMeta;
 		},
 
 		async pLoadAll () {
-			const [index, legendaryGroups] = await Promise.all([
+			const [index] = await Promise.all([
 				DataUtil.loadJSON(`${Renderer.get().baseUrl}data/bestiary/index.json`),
-				DataUtil.legendaryGroup.pLoadAll(),
+				DataUtil.monster.pPreloadMeta(),
 			]);
-
-			if (!DataUtil.monster._isMetaLoaded) {
-				DataUtil.monster.populateMetaReference({legendaryGroup: legendaryGroups});
-				DataUtil.monster._isMetaLoaded = true;
-			}
 
 			const allData = await Promise.all(Object.entries(index).map(async ([source, file]) => {
 				const data = await DataUtil.loadJSON(`${Renderer.get().baseUrl}data/bestiary/${file}`);
@@ -2690,7 +3203,7 @@ DataUtil = {
 			return allData.flat();
 		},
 
-		_isMetaLoaded: false,
+		_pLoadMeta: null,
 		metaGroupMap: {},
 		getMetaGroup (mon) {
 			if (!mon.legendaryGroup || !mon.legendaryGroup.source || !mon.legendaryGroup.name) return null;
@@ -2699,9 +3212,24 @@ DataUtil = {
 		populateMetaReference (data) {
 			(data.legendaryGroup || []).forEach(it => {
 				(DataUtil.monster.metaGroupMap[it.source] =
-					DataUtil.monster.metaGroupMap[it.source] || {})[it.name] =
-					DataUtil.monster.metaGroupMap[it.source][it.name] || it;
+					DataUtil.monster.metaGroupMap[it.source] || {})[it.name] = it;
 			});
+		},
+
+		async pPostProcess (data) {
+			// Load "summoned by spell" info
+			for (const mon of data.monster) {
+				if (!mon.summonedBySpell) continue;
+				let [name, source] = mon.summonedBySpell.split("|");
+				source = source || SRC_PHB;
+				const hash = UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_SPELLS]({name, source});
+				const spell = await Renderer.hover.pCacheAndGetHash(UrlUtil.PG_SPELLS, hash);
+				if (!spell) {
+					setTimeout(() => { throw new Error(`Could not load "${mon.name} (${mon.source})" "summonedBySpell" "${mon.summonedBySpell}"`); })
+					continue;
+				}
+				mon._summonedBySpell_levelBase = spell.level;
+			}
 		},
 	},
 
@@ -2714,11 +3242,7 @@ DataUtil = {
 	},
 
 	spell: {
-		_MERGE_REQUIRES_PRESERVE: {
-			page: true,
-			otherSources: true,
-			srd: true,
-		},
+		_MERGE_REQUIRES_PRESERVE: {},
 		_mergeCache: {},
 		async pMergeCopy (spellList, spell, options) {
 			return DataUtil.generic._pMergeCopy(DataUtil.spell, UrlUtil.PG_SPELLS, spellList, spell, options);
@@ -2749,6 +3273,8 @@ DataUtil = {
 			page: true,
 			otherSources: true,
 			srd: true,
+			hasFluff: true,
+			hasFluffImages: true,
 		},
 		_mergeCache: {},
 		async pMergeCopy (itemList, item, options) {
@@ -2765,11 +3291,7 @@ DataUtil = {
 	},
 
 	background: {
-		_MERGE_REQUIRES_PRESERVE: {
-			page: true,
-			otherSources: true,
-			srd: true,
-		},
+		_MERGE_REQUIRES_PRESERVE: {},
 		_mergeCache: {},
 		async pMergeCopy (bgList, bg, options) {
 			return DataUtil.generic._pMergeCopy(DataUtil.background, UrlUtil.PG_BACKGROUNDS, bgList, bg, options);
@@ -2779,13 +3301,31 @@ DataUtil = {
 	race: {
 		_MERGE_REQUIRES_PRESERVE: {
 			subraces: true,
-			page: true,
-			otherSources: true,
-			srd: true,
 		},
 		_mergeCache: {},
 		async pMergeCopy (raceList, race, options) {
 			return DataUtil.generic._pMergeCopy(DataUtil.race, UrlUtil.PG_RACES, raceList, race, options);
+		},
+
+		_loadCache: {},
+		_pIsLoadings: {},
+		async loadJSON ({isAddBaseRaces = false} = {}) {
+			if (!DataUtil.race._pIsLoadings[isAddBaseRaces]) {
+				DataUtil.race._pIsLoadings[isAddBaseRaces] = (async () => {
+					const rawRaceData = await DataUtil.loadJSON(`${Renderer.get().baseUrl}data/races.json`);
+					const raceData = Renderer.race.mergeSubraces(rawRaceData.race, {isAddBaseRaces});
+					DataUtil.race._loadCache[isAddBaseRaces] = {race: raceData};
+				})();
+			}
+			await DataUtil.race._pIsLoadings[isAddBaseRaces];
+			return DataUtil.race._loadCache[isAddBaseRaces];
+		},
+
+		async loadBrew ({isAddBaseRaces = true} = {}) {
+			const brew = await BrewUtil.pAddBrewData();
+			let fromBrew = MiscUtil.copy(brew.race || []);
+			fromBrew = Renderer.race.mergeSubraces(fromBrew, {isAddBaseRaces});
+			return {race: fromBrew};
 		},
 	},
 
@@ -2798,6 +3338,12 @@ DataUtil = {
 	},
 
 	class: {
+		_MERGE_REQUIRES_PRESERVE: {},
+		_mergeCache: {},
+		async pMergeCopy (classList, cls, options) {
+			return DataUtil.generic._pMergeCopy(DataUtil.class, UrlUtil.PG_CLASSES, classList, cls, options);
+		},
+
 		_pLoadingJson: null,
 		_pLoadingRawJson: null,
 		_loadedJson: null,
@@ -2807,10 +3353,18 @@ DataUtil = {
 
 			DataUtil.class._pLoadingJson = (async () => {
 				const index = await DataUtil.loadJSON(`${Renderer.get().baseUrl}data/class/index.json`);
-				const allData = await Promise.all(Object.values(index).map(it => DataUtil.loadJSON(`${Renderer.get().baseUrl}data/class/${it}`)));
 
-				const allDereferencedData = await Promise.all(allData.map(json => Promise.all((json.class || []).map(cls => DataUtil.class.pGetDereferencedClassData(cls)))));
-				DataUtil.class._loadedJson = {class: allDereferencedData.flat()};
+				const allData = (
+					await Object.values(index)
+						.pSerialAwaitMap(it => DataUtil.loadJSON(`${Renderer.get().baseUrl}data/class/${it}`))
+				)
+					.map(it => MiscUtil.copy(it));
+
+				const allDereferencedClassData = (await Promise.all(allData.map(json => Promise.all((json.class || []).map(cls => DataUtil.class.pGetDereferencedClassData(cls)))))).flat();
+
+				const allDereferencedSubclassData = (await Promise.all(allData.map(json => Promise.all((json.subclass || []).map(sc => DataUtil.class.pGetDereferencedSubclassData(sc)))))).flat();
+
+				DataUtil.class._loadedJson = {class: allDereferencedClassData, subclass: allDereferencedSubclassData};
 			})();
 			await DataUtil.class._pLoadingJson;
 
@@ -2825,7 +3379,8 @@ DataUtil = {
 				const allData = await Promise.all(Object.values(index).map(it => DataUtil.loadJSON(`${Renderer.get().baseUrl}data/class/${it}`)));
 
 				DataUtil.class._loadedRawJson = {
-					class: allData.map(it => it.class || []).flat(),
+					class: MiscUtil.copy(allData.map(it => it.class || []).flat()),
+					subclass: MiscUtil.copy(allData.map(it => it.subclass || []).flat()),
 					classFeature: allData.map(it => it.classFeature || []).flat(),
 					subclassFeature: allData.map(it => it.subclassFeature || []).flat(),
 				};
@@ -2857,6 +3412,22 @@ DataUtil = {
 			};
 		},
 
+		isValidClassFeatureUid (uid) {
+			const {name, className, level} = DataUtil.class.unpackUidClassFeature(uid);
+			return !(!name || !className || isNaN(level));
+		},
+
+		packUidClassFeature (f) {
+			// <name>|<className>|<classSource>|<level>|<source>
+			return [
+				f.name,
+				f.className,
+				f.classSource === SRC_PHB ? "" : f.classSource, // assume the class has PHB source
+				f.level,
+				f.source === f.classSource ? "" : f.source, // assume the class feature has the class source
+			].join("|").replace(/\|+$/, ""); // Trim trailing pipes
+		},
+
 		/**
 		 * @param uid
 		 * @param [opts]
@@ -2882,6 +3453,24 @@ DataUtil = {
 			};
 		},
 
+		isValidSubclassFeatureUid (uid) {
+			const {name, className, subclassShortName, level} = DataUtil.class.unpackUidSubclassFeature(uid);
+			return !(!name || !className || !subclassShortName || isNaN(level));
+		},
+
+		packUidSubclassFeature (f) {
+			// <name>|<className>|<classSource>|<subclassShortName>|<subclassSource>|<level>|<source>
+			return [
+				f.name,
+				f.className,
+				f.classSource === SRC_PHB ? "" : f.classSource, // assume the class has the PHB source
+				f.subclassShortName,
+				f.subclassSource === SRC_PHB ? "" : f.subclassSource, // assume the subclass has the PHB source
+				f.level,
+				f.source === f.subclassSource ? "" : f.source, // assume the feature has the same source as the subclass
+			].join("|").replace(/\|+$/, ""); // Trim trailing pipes
+		},
+
 		_mutEntryNestLevel (feature) {
 			const depth = (feature.header == null ? 1 : feature.header) - 1;
 			for (let i = 0; i < depth; ++i) {
@@ -2904,6 +3493,8 @@ DataUtil = {
 				const uid = classFeatureRef.classFeature ? classFeatureRef.classFeature : classFeatureRef;
 				const {name, className, classSource, level, source} = DataUtil.class.unpackUidClassFeature(uid);
 				if (!name || !className || !level || isNaN(level)) continue; // skip over broken links
+
+				if (source === SRC_5ETOOLS_TMP) continue; // Skip over temp/nonexistent links
 
 				const hash = UrlUtil.URL_TO_HASH_BUILDER["classFeature"]({name, className, classSource, level, source});
 
@@ -2933,14 +3524,6 @@ DataUtil = {
 				outClassFeatures[i - 1] = byLevel[i] || [];
 			}
 			cls.classFeatures = outClassFeatures;
-
-			if (cls.subclasses) {
-				const outSubclasses = [];
-				for (const sc of cls.subclasses) {
-					outSubclasses.push(await DataUtil.class.pGetDereferencedSubclassData(sc));
-				}
-				cls.subclasses = outSubclasses;
-			}
 
 			return cls;
 		},
@@ -2985,14 +3568,44 @@ DataUtil = {
 
 			return sc;
 		},
+
+		// region Subclass lookup
+		_CACHE_SUBCLASS_LOOKUP_PROMISE: null,
+		_CACHE_SUBCLASS_LOOKUP: null,
+		async pGetSubclassLookup () {
+			DataUtil.class._CACHE_SUBCLASS_LOOKUP_PROMISE = DataUtil.class._CACHE_SUBCLASS_LOOKUP_PROMISE || (async () => {
+				const subclassLookup = {};
+				Object.assign(subclassLookup, await DataUtil.loadJSON(`${Renderer.get().baseUrl}data/generated/gendata-subclass-lookup.json`));
+				const homebrew = await BrewUtil.pAddBrewData();
+				DataUtil.class.mergeHomebrewSubclassLookup(subclassLookup, homebrew);
+				DataUtil.class._CACHE_SUBCLASS_LOOKUP = subclassLookup;
+			})();
+			await DataUtil.class._CACHE_SUBCLASS_LOOKUP_PROMISE;
+			return DataUtil.class._CACHE_SUBCLASS_LOOKUP;
+		},
+
+		mergeHomebrewSubclassLookup (subclassLookup, homebrew) {
+			(homebrew.subclass || [])
+				.forEach(sc => {
+					const clSrc = sc.classSource || SRC_PHB;
+					sc.shortName = sc.shortName || sc.name;
+					const target = MiscUtil.getOrSet(subclassLookup, clSrc, sc.className, {});
+					MiscUtil.set(target, sc.source, sc.shortName, {name: sc.name});
+				});
+		},
+		// endregion
+	},
+
+	subclass: {
+		_MERGE_REQUIRES_PRESERVE: {},
+		_mergeCache: {},
+		async pMergeCopy (subclassList, subclass, options) {
+			return DataUtil.generic._pMergeCopy(DataUtil.subclass, "subclass", subclassList, subclass, options);
+		},
 	},
 
 	deity: {
-		_MERGE_REQUIRES_PRESERVE: {
-			page: true,
-			otherSources: true,
-			srd: true,
-		},
+		_MERGE_REQUIRES_PRESERVE: {},
 		_mergeCache: {},
 		async pMergeCopy (deityList, deity, options) {
 			return DataUtil.generic._pMergeCopy(DataUtil.deity, UrlUtil.PG_DEITIES, deityList, deity, options);
@@ -3043,8 +3656,13 @@ DataUtil = {
 	},
 
 	table: {
-		async pLoadAll () {
-			const datas = await Promise.all([`${Renderer.get().baseUrl}data/generated/gendata-tables.json`, `${Renderer.get().baseUrl}data/tables.json`].map(url => DataUtil.loadJSON(url)));
+		async loadJSON () {
+			const [dataEncounters, dataNames, ...datas] = await Promise.all([
+				`${Renderer.get().baseUrl}data/encounters.json`,
+				`${Renderer.get().baseUrl}data/names.json`,
+				`${Renderer.get().baseUrl}data/generated/gendata-tables.json`,
+				`${Renderer.get().baseUrl}data/tables.json`,
+			].map(url => DataUtil.loadJSON(url)));
 			const combined = {};
 			datas.forEach(data => {
 				Object.entries(data).forEach(([k, v]) => {
@@ -3053,13 +3671,139 @@ DataUtil = {
 					else throw new Error(`Could not merge keys for key "${k}"`);
 				});
 			});
+
+			dataEncounters.encounter.forEach(group => {
+				group.tables.forEach(tableRaw => {
+					combined.table.push(DataUtil.table._getConvertedEncounterOrNamesTable({
+						group,
+						tableRaw,
+						fnGetNameCaption: DataUtil.table._getConvertedEncounterTableName,
+						colLabel1: "Encounter",
+					}));
+				});
+			});
+
+			dataNames.name.forEach(group => {
+				group.tables.forEach(tableRaw => {
+					combined.table.push(DataUtil.table._getConvertedEncounterOrNamesTable({
+						group,
+						tableRaw,
+						fnGetNameCaption: DataUtil.table._getConvertedNameTableName,
+						colLabel1: "Name",
+					}));
+				});
+			});
+
 			return combined;
+		},
+
+		_getConvertedEncounterTableName (group, tableRaw) { return `${group.name} Encounters (Levels ${tableRaw.minlvl}\u2014${tableRaw.maxlvl})`; },
+		_getConvertedNameTableName (group, tableRaw) { return `${group.name} Names - ${tableRaw.option}`; },
+
+		_getConvertedEncounterOrNamesTable ({group, tableRaw, fnGetNameCaption, colLabel1}) {
+			const nameCaption = fnGetNameCaption(group, tableRaw);
+			return {
+				name: nameCaption,
+				source: group.source,
+				page: group.page,
+				caption: nameCaption,
+				colLabels: [
+					`d${tableRaw.diceType}`,
+					colLabel1,
+				],
+				colStyles: [
+					"col-2 text-center",
+					"col-10",
+				],
+				rows: tableRaw.table.map(it => [
+					`${it.min}${it.max && it.max !== it.min ? `-${it.max}` : ""}`,
+					it.result.replace(RollerUtil.DICE_REGEX, (...m) => `{@dice ${m[0]}}`),
+				]),
+			};
 		},
 	},
 
 	legendaryGroup: {
 		async pLoadAll () {
 			return (await DataUtil.loadJSON(`${Renderer.get().baseUrl}data/bestiary/legendarygroups.json`)).legendaryGroup;
+		},
+	},
+
+	language: {
+		async loadJSON () {
+			const rawData = await DataUtil.loadJSON(`${Renderer.get().baseUrl}data/languages.json`);
+
+			// region Populate fonts, based on script
+			const scriptLookup = {};
+			(rawData.languageScript || []).forEach(script => scriptLookup[script.name] = script);
+
+			const out = {language: MiscUtil.copy(rawData.language)};
+			out.language.forEach(lang => {
+				if (!lang.script || lang.fonts === false) return;
+
+				const script = scriptLookup[lang.script];
+				if (!script) return;
+
+				lang._fonts = [...script.fonts];
+			});
+			// endregion
+
+			return out;
+		},
+	},
+
+	recipe: {
+		async loadJSON () {
+			const out = [];
+
+			const rawData = await DataUtil.loadJSON(`${Renderer.get().baseUrl}data/recipes.json`);
+
+			DataUtil.recipe.postProcessData(rawData);
+
+			// region Merge together main data and fluff, as we render the fluff in the main tab
+			for (const r of rawData.recipe) {
+				const fluff = await Renderer.utils.pGetFluff({
+					entity: r,
+					fluffUrl: `data/fluff-recipes.json`,
+					fluffProp: "recipeFluff",
+				});
+
+				if (!fluff) {
+					out.push(r);
+					continue;
+				}
+
+				const cpyR = MiscUtil.copy(r);
+				cpyR.fluff = MiscUtil.copy(fluff);
+				delete cpyR.fluff.name;
+				delete cpyR.fluff.source;
+				out.push(cpyR);
+			}
+			// endregion
+
+			return {recipe: out};
+		},
+
+		postProcessData (data) {
+			if (!data.recipe || !data.recipe.length) return;
+
+			// Apply ingredient properties
+			data.recipe.forEach(r => Renderer.recipe.populateFullIngredients(r));
+		},
+
+		async loadBrew () {
+			const brew = await BrewUtil.pAddBrewData();
+			DataUtil.recipe.postProcessData(brew);
+			return brew;
+		},
+	},
+
+	variantrule: {
+		async loadJSON () {
+			const rawData = await DataUtil.loadJSON(`${Renderer.get().baseUrl}data/variantrules.json`);
+			const rawDataGenerated = await DataUtil.loadJSON(`${Renderer.get().baseUrl}data/generated/gendata-variantrules.json`);
+
+			return {variantrule: [...rawData.variantrule, ...rawDataGenerated.variantrule]};
 		},
 	},
 
@@ -3080,6 +3824,11 @@ DataUtil = {
 		async pLoadPropIndex (urlRoot) {
 			urlRoot = DataUtil.brew._getCleanUrlRoot(urlRoot);
 			return DataUtil.loadJSON(`${urlRoot}_generated/index-props.json`);
+		},
+
+		async pLoadNameIndex (urlRoot) {
+			urlRoot = DataUtil.brew._getCleanUrlRoot(urlRoot);
+			return DataUtil.loadJSON(`${urlRoot}_generated/index-names.json`);
 		},
 
 		async pLoadSourceIndex (urlRoot) {
@@ -3197,7 +3946,7 @@ RollerUtil = {
 	_DICE_REGEX_STR: "((([1-9]\\d*)?d([1-9]\\d*)(\\s*?[-+×x*÷/]\\s*?(\\d,\\d|\\d)+(\\.\\d+)?)?))+?",
 };
 RollerUtil.DICE_REGEX = new RegExp(RollerUtil._DICE_REGEX_STR, "g");
-RollerUtil.REGEX_DAMAGE_DICE = /(\d+)( \((?:{@dice |{@damage ))([-+0-9d ]*)(}\) [a-z]+( \([-a-zA-Z0-9 ]+\))?( or [a-z]+( \([-a-zA-Z0-9 ]+\))?)? damage)/gi;
+RollerUtil.REGEX_DAMAGE_DICE = /(\d+)( \((?:{@dice |{@damage ))([-+0-9d ]*)(}\)(?:\s*\+\s*the spell's level)? [a-z]+( \([-a-zA-Z0-9 ]+\))?( or [a-z]+( \([-a-zA-Z0-9 ]+\))?)? damage)/gi;
 RollerUtil.REGEX_DAMAGE_FLAT = /(Hit: |{@h})([0-9]+)( [a-z]+( \([-a-zA-Z0-9 ]+\))?( or [a-z]+( \([-a-zA-Z0-9 ]+\))?)? damage)/gi;
 RollerUtil._REGEX_ROLLABLE_COL_LABEL = /^(.*?\d)(\s*[-+/*^×÷]\s*)([a-zA-Z0-9 ]+)$/;
 RollerUtil.ROLL_COL_NONE = 0;
@@ -3462,6 +4211,8 @@ BrewUtil = {
 				BrewUtil.homebrewMeta = StorageUtil.syncGet(VeCt.STORAGE_HOMEBREW_META) || {sources: []};
 				BrewUtil.homebrewMeta.sources = BrewUtil.homebrewMeta.sources || [];
 
+				BrewUtil._mutMakeBrewCompatible(homebrew);
+
 				BrewUtil.homebrew = homebrew;
 
 				BrewUtil._resetSourceCache();
@@ -3470,6 +4221,28 @@ BrewUtil = {
 			} catch (e) {
 				BrewUtil.pPurgeBrew(e);
 			}
+		}
+	},
+
+	_mutMakeBrewCompatible (homebrew) {
+		let hasOldSubclasses = false;
+
+		if (homebrew.class) {
+			homebrew.class.forEach(cls => {
+				if (cls.subclasses) {
+					hasOldSubclasses = true;
+					cls.subclasses.forEach(sc => {
+						sc.className = sc.className || cls.name;
+						sc.classSource = sc.classSource || cls.source;
+						(homebrew.subclass = homebrew.subclass || []).push(sc);
+					});
+					delete cls.subclasses;
+				}
+			})
+		}
+
+		if (hasOldSubclasses) {
+			JqueryUtil.doToast({type: "warning", content: `Converted legacy homebrew subclasses\u2014you should re-load your class homebrews, as this backwards compatibility will be removed in future!`});
 		}
 	},
 
@@ -3487,14 +4260,14 @@ BrewUtil = {
 		if (error) setTimeout(() => { throw error; });
 	},
 
-	async pAddLocalBrewData (callbackFn = async (d, page) => BrewUtil.pDoHandleBrewJson(d, page, null)) {
+	async pAddLocalBrewData () {
 		if (!IS_VTT && !IS_DEPLOYED) {
 			const data = await DataUtil.loadJSON(`${Renderer.get().baseUrl}${VeCt.JSON_HOMEBREW_INDEX}`);
 			// auto-load from `homebrew/`, for custom versions of the site
 			if (data.toImport.length) {
 				const page = BrewUtil._PAGE || UrlUtil.getCurrentPage();
 				const allData = await Promise.all(data.toImport.map(it => DataUtil.loadJSON(`homebrew/${it}`)));
-				await Promise.all(allData.map(d => callbackFn(d, page)));
+				for (const d of allData) await BrewUtil.pDoHandleBrewJson(d, page, null);
 			}
 		}
 	},
@@ -3514,23 +4287,15 @@ BrewUtil = {
 
 		await BrewUtil._pRenderBrewScreen_pRefreshBrewList($brewList);
 
-		const $iptAdd = $(`<input multiple type="file" accept=".json" style="display: none;">`)
-			.change(evt => {
-				const input = evt.target;
-
-				let readIndex = 0;
-				const reader = new FileReader();
-				reader.onload = async () => {
-					const json = JSON.parse(reader.result);
-
+		const $btnLoadFromFile = $(`<button class="btn btn-default btn-sm mr-2">Upload File</button>`)
+			.click(async () => {
+				const files = await DataUtil.pUserUpload({isMultiple: true});
+				if (!files) return;
+				for (const json of files) {
 					await DataUtil.pDoMetaMerge(CryptUtil.uid(), json);
 
 					await BrewUtil.pDoHandleBrewJson(json, page, BrewUtil._pRenderBrewScreen_pRefreshBrewList.bind(this, $brewList));
-
-					if (input.files[readIndex]) reader.readAsText(input.files[readIndex++]);
-					else $(evt.target).val(""); // reset the input
-				};
-				reader.readAsText(input.files[readIndex++]);
+				}
 			});
 
 		const $btnLoadFromUrl = $(`<button class="btn btn-default btn-sm mr-2">Load from URL</button>`)
@@ -3581,7 +4346,7 @@ BrewUtil = {
 					${$btnGet}
 					${$btnCustomUrl}
 				</div>
-				<label role="button" class="btn btn-default btn-sm mr-2">Upload File${$iptAdd}</label>
+				${$btnLoadFromFile}
 				${$btnLoadFromUrl}
 			</div>
 			<div class="flex-v-center">
@@ -3621,13 +4386,13 @@ BrewUtil = {
 
 		const $btnAll = $(`<button class="btn btn-default btn-xs" disabled title="(Excluding samples)">Add All</button>`);
 
-		const $ulRows = $$`<ul class="list"><li><div class="lst__wrp-cells"><span style="font-style: italic;">Loading...</span></div></li></ul>`;
+		const $wrpRows = $$`<div class="list"><div class="lst__row flex-col"><div class="lst__wrp-cells lst--border lst__row-inner flex w-100"><span style="font-style: italic;">Loading...</span></div></div></div>`;
 
 		const $iptSearch = $(`<input type="search" class="search manbrew__search form-control w-100" placeholder="Find homebrew...">`)
 			.keydown(evt => {
 				switch (evt.which) {
 					case 13: { // enter
-						return $ulRows.find(`li`).first().find(`.manbrew__load_from_url`).click()
+						return $wrpRows.find(`.lst__row`).first().find(`.manbrew__load_from_url`).click()
 					}
 					case 40: { // down
 						const firstItem = list.visibleItems[0];
@@ -3659,7 +4424,7 @@ BrewUtil = {
 			<button class="col-1-4 sort btn btn-default btn-xs" data-sort="added">Added</button>
 			<button class="sort btn btn-default btn-xs ve-grow" disabled>Source</button>
 		</div>
-		${$ulRows}`;
+		${$wrpRows}`;
 
 		// populate list
 		let dataList;
@@ -3678,9 +4443,10 @@ BrewUtil = {
 		}
 
 		const urlRoot = await StorageUtil.pGet(`HOMEBREW_CUSTOM_REPO_URL`);
-		const [timestamps, propIndex] = await Promise.all([
+		const [timestamps, propIndex, nameIndex] = await Promise.all([
 			DataUtil.brew.pLoadTimestamps(urlRoot),
 			DataUtil.brew.pLoadPropIndex(urlRoot),
+			DataUtil.brew.pLoadNameIndex(urlRoot),
 		]);
 		const props = opts.isShowAll ? BrewUtil.getPageProps(UrlUtil.PG_MANAGE_BREW) : BrewUtil.getPageProps();
 
@@ -3716,15 +4482,17 @@ BrewUtil = {
 
 		const list = new List({
 			$iptSearch,
-			$wrpList: $ulRows,
+			$wrpList: $wrpRows,
 			fnSort,
 			isUseJquery: true,
+			isFuzzy: true,
 		});
 		SortUtil.initBtnSortHandlers($modalInner.find(".manbrew__filtertools"), list);
 
 		dataList.forEach((it, i) => {
 			it._brewAdded = (timestamps[it.path] || {}).a || 0;
 			it._brewModified = (timestamps[it.path] || {}).m || 0;
+			it._brewInternalSources = (nameIndex[it.name]) || [];
 			it._brewCat = BrewUtil._pRenderBrewScreen_getDisplayCat(BrewUtil.dirToProp(it._cat));
 
 			const timestampAdded = it._brewAdded ? MiscUtil.dateToStr(new Date(it._brewAdded * 1000), true) : "";
@@ -3734,8 +4502,8 @@ BrewUtil = {
 				.text(it._brewName)
 				.click(() => BrewUtil.addBrewRemote($btnAdd, it.download_url || "", true));
 
-			const $li = $$`<li class="not-clickable lst--border lst__row--focusable" tabindex="1">
-				<div class="lst__wrp-cells">
+			const $row = $$`<div class="lst__row lst__row-inner not-clickable lst--border lst__row--focusable" tabindex="1">
+				<div class="lst__wrp-cells flex w-100">
 					${$btnAdd}
 					<span class="col-3">${it._brewAuthor}</span>
 					<span class="col-1-2 text-center">${it._brewCat}</span>
@@ -3743,9 +4511,9 @@ BrewUtil = {
 					<span class="col-1-4 text-center">${timestampAdded}</span>
 					<span class="col-1 manbrew__source text-center pr-0"><a href="${it.download_url}" target="_blank" rel="noopener noreferrer">View Raw</a></span>
 				</div>
-			</li>`;
+			</div>`;
 
-			$li.keydown(evt => {
+			$row.keydown(evt => {
 				switch (evt.which) {
 					case 13: { // enter
 						return $btnAdd.click()
@@ -3776,17 +4544,19 @@ BrewUtil = {
 
 			const listItem = new ListItem(
 				i,
-				$li,
+				$row,
 				it._brewName,
 				{
 					author: it._brewAuthor,
 					category: it._brewCat,
-					added: timestampAdded,
-					modified: timestampAdded,
+					// Used for search
+					internalSources: it._brewInternalSources,
 				},
 				{
 					$btnAdd,
 					isSample: it._brewAuthor.toLowerCase().startsWith("sample -"),
+					added: timestampAdded,
+					modified: timestampAdded,
 				},
 			);
 			list.addItem(listItem);
@@ -3794,7 +4564,13 @@ BrewUtil = {
 
 		list.init();
 
-		$btnAll.prop("disabled", false).click(() => list.visibleItems.filter(it => !it.data.isSample).forEach(it => it.data.$btnAdd.click()));
+		$btnAll
+			.prop("disabled", false)
+			.click(async () => {
+				const toAdd = list.visibleItems.filter(it => !it.data.isSample);
+				if (toAdd.length > 10 && !await InputUiUtil.pGetUserBoolean({title: "Are you sure?", htmlDescription: `<div>You area about to load ${toAdd.length} homebrew files.<br>Loading large quantities of homebrew can lead to performance and stability issues.</div>`, textYes: "Continue"})) return;
+				toAdd.forEach(it => it.data.$btnAdd.click());
+			});
 
 		if ($btnToggleDisplayNonPageBrews) {
 			$btnToggleDisplayNonPageBrews
@@ -3872,7 +4648,7 @@ BrewUtil = {
 			});
 
 			const $cbAll = $(`<input type="checkbox">`);
-			const $ulRows = $$`<ul class="list"></ul>`;
+			const $wrpRows = $$`<div class="list flex-col w-100"></div>`;
 			const $iptSearch = $(`<input type="search" class="search manbrew__search form-control w-100 mt-1" placeholder="Search entries...">`);
 			const $wrpBtnsSort = $$`<div class="filtertools manbrew__filtertools btn-group">
 				<button class="col-6 sort btn btn-default btn-xs" data-sort="name">Name</button>
@@ -3882,17 +4658,17 @@ BrewUtil = {
 			$$($modalInner)`
 				${$iptSearch}
 				${$wrpBtnsSort}
-				${$ulRows}`;
+				${$wrpRows}`;
 
 			let list;
 
 			// populate list
 			function populateList () {
-				$ulRows.empty();
+				$wrpRows.empty();
 
 				list = new List({
 					$iptSearch,
-					$wrpList: $ulRows,
+					$wrpList: $wrpRows,
 					fnSort: SortUtil.listSort,
 				});
 
@@ -3942,10 +4718,10 @@ BrewUtil = {
 						.forEach((it, i) => {
 							const dispCat = BrewUtil._pRenderBrewScreen_getDisplayCat(cat, true);
 
-							const eleLi = document.createElement("li");
-							eleLi.className = "row px-0";
+							const eleLi = document.createElement("div");
+							eleLi.className = "lst__row flex-col px-0";
 
-							eleLi.innerHTML = `<label class="lst--border no-select mb-0 flex-v-center">
+							eleLi.innerHTML = `<label class="lst--border lst__row-inner no-select mb-0 flex-v-center">
 								<div class="col-6 bold">${it.name}</div>
 								<div class="col-5 flex-vh-center">${dispCat}${it.extraInfo}</div>
 								<div class="pr-0 col-1 flex-vh-center"><input type="checkbox" class="no-events"></div>
@@ -3969,10 +4745,10 @@ BrewUtil = {
 							eleLi.addEventListener("click", evt => ListUiUtil.handleSelectClick(list, listItem, evt));
 						});
 				});
-				$ulRows.empty();
+				$wrpRows.empty();
 
 				list.init();
-				if (!list.items.length) $ulRows.append(`<h5 class="text-center">No results found.</h5>`);
+				if (!list.items.length) $wrpRows.append(`<h5 class="text-center">No results found.</h5>`);
 				SortUtil.initBtnSortHandlers($wrpBtnsSort, list);
 			}
 			populateList();
@@ -4006,37 +4782,67 @@ BrewUtil = {
 		if (!BrewUtil.homebrew) return;
 
 		const $iptSearch = $(`<input type="search" class="search manbrew__search form-control" placeholder="Search active homebrew...">`);
-		const $wrpList = $(`<ul class="list-display-only brew-list brew-list--target manbrew__list"></ul>`);
-		const $ulGroup = $(`<ul class="list-display-only brew-list brew-list--groups no-shrink" style="height: initial;"></ul>`);
+		const $wrpList = $(`<div class="list-display-only brew-list brew-list--target manbrew__list flex-col w-100 mb-3"></div>`);
+		const $wrpListGroup = $(`<div class="list-display-only brew-list brew-list--groups no-shrink flex-col w-100" style="height: initial;"></div>`);
 
-		const list = new List({$iptSearch, $wrpList, isUseJquery: true});
+		const list = new List({
+			$iptSearch,
+			$wrpList,
+			isUseJquery: true,
+			isFuzzy: true,
+		});
 
 		const $lst = $$`
 			<div class="flex-col h-100">
 				${$iptSearch}
 				<div class="filtertools manbrew__filtertools btn-group input-group input-group--bottom flex no-shrink">
 					<button class="col-5 sort btn btn-default btn-xs ve-grow" data-sort="source">Source</button>
-					<button class="col-4 sort btn btn-default btn-xs" data-sort="authors">Authors</button>
+					<button class="col-5 sort btn btn-default btn-xs" data-sort="authors">Authors</button>
 					<button class="col-1 btn btn-default btn-xs" disabled>Origin</button>
-					<button class="col-2 ve-grow btn btn-default btn-xs" disabled>&nbsp;</button>
+					<button class="col-1 ve-grow btn btn-default btn-xs" disabled>&nbsp;</button>
 				</div>
 				<div class="flex w-100 h-100 overflow-y-auto relative">${$wrpList}</div>
 			</div>
 		`.appendTo($brewList);
-		$ulGroup.appendTo($brewList);
+		$wrpListGroup.appendTo($brewList);
 		SortUtil.initBtnSortHandlers($lst.find(".manbrew__filtertools"), list);
 
-		const createButtons = (src, $row) => {
-			const $btnViewManage = $(`<button class="btn btn-sm btn-default">View/Manage</button>`)
+		const createButtons = (src, $row, isFooterGroup) => {
+			const hasConverters = !isFooterGroup && !!src.convertedBy?.length;
+			const btnConvertedBy = isFooterGroup ? null : e_({
+				tag: "button",
+				clazz: `btn btn-xs btn-default ${!hasConverters ? "disabled" : ""}`,
+				title: hasConverters ? `Converted by: ${src.convertedBy.join(", ").qq()}` : "(No conversion credit given)",
+				children: [
+					e_({
+						tag: "span",
+						clazz: "glyphicon glyphicon-certificate",
+					}),
+				],
+				click: () => {
+					if (!hasConverters) return;
+					const {$modalInner} = UiUtil.getShowModal({
+						title: "Converted By:",
+						isMinHeight0: true,
+					});
+
+					if (src.convertedBy.length === 1) return $modalInner.append(`<div>${src.convertedBy.join("").qq()}</div>`);
+
+					$modalInner.append(`<ul>${src.convertedBy.map(it => `<li>${it.qq()}</li>`).join("")}</ul>`);
+				},
+			});
+
+			const $btnViewManage = $(`<button class="btn btn-xs btn-default" title="View/Manage"><span class="glyphicon glyphicon-folder-close"></span></button>`)
 				.on("click", () => {
 					showSourceManager(src.json, src._all);
 				});
 
-			const $btnDeleteAll = $(`<button class="btn btn-danger btn-sm"><span class="glyphicon glyphicon-trash"></span></button>`)
+			const $btnDeleteAll = $(`<button class="btn btn-danger btn-xs"><span class="glyphicon glyphicon-trash"></span></button>`)
 				.on("click", () => BrewUtil._pRenderBrewScreen_pDeleteSource($brewList, src.json, true, src._all));
 
-			$$`<div class="flex-h-right flex-v-center btn-group">
+			$$`<div class="${isFooterGroup ? `flex-v-center flex-h-right` : `flex-vh-center ve-grow`} btn-group">
 				${$btnViewManage}
+				${btnConvertedBy}
 				${$btnDeleteAll}
 			</div>`.appendTo($row);
 		};
@@ -4049,12 +4855,12 @@ BrewUtil = {
 			const validAuthors = (!src.authors ? [] : !(src.authors instanceof Array) ? [] : src.authors).join(", ");
 			const isGroup = src._unknown || src._all;
 
-			const $row = $(`<li class="row manbrew__row lst--border">
-				<span class="col-5 manbrew__col--tall source manbrew__source">${isGroup ? "<i>" : ""}${src.full}${isGroup ? "</i>" : ""}</span>
-				<span class="col-4 manbrew__col--tall authors">${validAuthors}</span>
-				<${src.url ? "a" : "span"} class="col-1 manbrew__col--tall text-center" ${src.url ? `href="${src.url}" target="_blank" rel="noopener noreferrer"` : ""}>${src.url ? "View Source" : ""}</${src.url ? "a" : "span"}>
+			const $row = $(`<div class="manbrew__row flex-v-center lst__row lst--border lst__row-inner no-shrink">
+				<span class="col-5 source manbrew__source">${isGroup ? "<i>" : ""}${src.full}${isGroup ? "</i>" : ""}</span>
+				<span class="col-5 authors">${validAuthors}</span>
+				<${src.url ? "a" : "span"} class="col-1 text-center" ${src.url ? `href="${src.url}" target="_blank" rel="noopener noreferrer"` : ""}>${src.url ? "View Source" : ""}</${src.url ? "a" : "span"}>
 				<span class="hidden">${src.abbreviation}</span>
-			</li>`);
+			</div>`);
 			createButtons(src, $row);
 
 			const listItem = new ListItem(
@@ -4070,11 +4876,11 @@ BrewUtil = {
 		});
 
 		const createGroupRow = (fullText, modeProp) => {
-			const $row = $(`<div class="row manbrew__row flex-h-right">
-				<div class="manbrew__col--tall source manbrew__source text-right"><i class="mr-3">${fullText}</i></div>
+			const $row = $(`<div class="manbrew__row flex-h-right flex-v-center">
+				<div class="source manbrew__source text-right"><i class="mr-3">${fullText}</i></div>
 			</div>`);
-			createButtons({[modeProp]: true}, $row);
-			$ulGroup.append($row);
+			createButtons({[modeProp]: true}, $row, true);
+			$wrpListGroup.append($row);
 		};
 		createGroupRow("Entries From All Sources", "_all");
 		createGroupRow("Entries Without Sources", "_unknown");
@@ -4091,7 +4897,7 @@ BrewUtil = {
 	getPageProps (page) {
 		page = BrewUtil._PAGE || page || UrlUtil.getCurrentPage();
 
-		const _PG_SPELLS = ["spell"];
+		const _PG_SPELLS = ["spell", "spellFluff"];
 		const _PG_BESTIARY = ["monster", "legendaryGroup", "monsterFluff"];
 
 		switch (page) {
@@ -4105,7 +4911,7 @@ BrewUtil = {
 			case UrlUtil.PG_OBJECTS: return ["object"];
 			case UrlUtil.PG_TRAPS_HAZARDS: return ["trap", "hazard"];
 			case UrlUtil.PG_DEITIES: return ["deity"];
-			case UrlUtil.PG_ITEMS: return ["item", "baseitem", "variant", "itemProperty", "itemType", "itemFluff"];
+			case UrlUtil.PG_ITEMS: return ["item", "baseitem", "variant", "itemProperty", "itemType", "itemFluff", "itemGroup", "itemEntry"];
 			case UrlUtil.PG_REWARDS: return ["reward"];
 			case UrlUtil.PG_PSIONICS: return ["psionic"];
 			case UrlUtil.PG_VARIANTRULES: return ["variantrule"];
@@ -4123,8 +4929,10 @@ BrewUtil = {
 			case UrlUtil.PG_VEHICLES: return ["vehicle", "vehicleUpgrade"];
 			case UrlUtil.PG_ACTIONS: return ["action"];
 			case UrlUtil.PG_CULTS_BOONS: return ["cult", "boon"];
-			case UrlUtil.PG_LANGUAGES: return ["language"];
+			case UrlUtil.PG_LANGUAGES: return ["language", "languageScript"];
 			case UrlUtil.PG_CHAR_CREATION_OPTIONS: return ["charoption"];
+			case UrlUtil.PG_RECIPES: return ["recipe"];
+			case UrlUtil.PG_CLASS_SUBCLASS_FEATURES: return ["classFeature", "subclassFeature"];
 			default: throw new Error(`No homebrew properties defined for category ${page}`);
 		}
 	},
@@ -4152,8 +4960,10 @@ BrewUtil = {
 		if (cat === "book") return isManager ? "Book Contents/Info" : "Book";
 		if (cat === "bookData") return "Book Text";
 		if (cat === "itemProperty") return "Item Property";
+		if (cat === "itemEntry") return "Item Entry";
 		if (cat === "baseitem") return "Base Item";
 		if (cat === "variant") return "Magic Item Variant";
+		if (cat === "itemGroup") return "Item Group";
 		if (cat === "monsterFluff") return "Monster Fluff";
 		if (cat === "itemFluff") return "Item Fluff";
 		if (cat === "makebrewCreatureTrait") return "Homebrew Builder Creature Trait";
@@ -4196,6 +5006,7 @@ BrewUtil = {
 	_getPDeleteFunction (category) {
 		switch (category) {
 			case "spell":
+			case "spellFluff":
 			case "monster":
 			case "monsterFluff":
 			case "background":
@@ -4213,6 +5024,8 @@ BrewUtil = {
 			case "itemType":
 			case "itemProperty":
 			case "itemFluff":
+			case "itemGroup":
+			case "itemEntry":
 			case "reward":
 			case "psionic":
 			case "variantrule":
@@ -4228,12 +5041,14 @@ BrewUtil = {
 			case "cult":
 			case "boon":
 			case "language":
+			case "languageScript":
 			case "class":
 			case "makebrewCreatureTrait":
 			case "classFeature":
 			case "subclassFeature":
 			case "charoption":
 			case "charoptionFluff":
+			case "recipe":
 				return BrewUtil._genPDeleteGenericBrew(category);
 			case "race": return BrewUtil._pDeleteRaceBrew;
 			case "subclass": return BrewUtil._pDeleteSubclassBrew;
@@ -4331,6 +5146,10 @@ BrewUtil = {
 		return (BrewUtil.homebrew[prop] = BrewUtil.homebrew[prop] || []).findIndex(it => it.name === obj.name && it.source === obj.source);
 	},
 
+	getEntryByEntryIx (prop, ix) {
+		return (BrewUtil.homebrew[prop] = BrewUtil.homebrew[prop] || [])[ix];
+	},
+
 	async pUpdateEntryByIx (prop, ix, obj) {
 		if (~ix && ix < BrewUtil.homebrew[prop].length) {
 			BrewUtil._mutUniqueId(obj);
@@ -4344,13 +5163,18 @@ BrewUtil = {
 		obj.uniqueId = CryptUtil.md5(JSON.stringify(obj));
 	},
 
-	_DIRS: ["action", "adventure", "background", "book", "boon", "charoption", "class", "condition", "creature", "cult", "deity", "disease", "feat", "hazard", "item", "language", "magicvariant", "makebrew", "object", "optionalfeature", "psionic", "race", "reward", "spell", /* "status", */ "subclass", "subrace", "table", "trap", "variantrule", "vehicle", "classFeature", "subclassFeature"],
-	_STORABLE: ["class", "subclass", "classFeature", "subclassFeature", "spell", "monster", "legendaryGroup", "monsterFluff", "background", "feat", "optionalfeature", "race", "raceFluff", "subrace", "deity", "item", "baseitem", "variant", "itemProperty", "itemType", "itemFluff", "psionic", "reward", "object", "trap", "hazard", "variantrule", "condition", "disease", "status", "adventure", "adventureData", "book", "bookData", "table", "tableGroup", "vehicle", "vehicleUpgrade", "action", "cult", "boon", "language", "makebrewCreatureTrait", "charoption", "charoptionFluff"],
+	_DIRS: ["action", "adventure", "background", "book", "boon", "charoption", "class", "condition", "creature", "cult", "deity", "disease", "feat", "hazard", "item", "language", "magicvariant", "makebrew", "object", "optionalfeature", "psionic", "race", "recipe", "reward", "spell", "spellFluff", /* "status", */ "subclass", "subrace", "table", "trap", "variantrule", "vehicle", "classFeature", "subclassFeature"],
+	_STORABLE: ["class", "subclass", "classFeature", "subclassFeature", "spell", "spellFluff", "monster", "legendaryGroup", "monsterFluff", "background", "feat", "optionalfeature", "race", "raceFluff", "subrace", "deity", "item", "baseitem", "variant", "itemProperty", "itemType", "itemFluff", "itemGroup", "itemEntry", "psionic", "reward", "object", "trap", "hazard", "variantrule", "condition", "disease", "status", "adventure", "adventureData", "book", "bookData", "table", "tableGroup", "vehicle", "vehicleUpgrade", "action", "cult", "boon", "language", "languageScript", "makebrewCreatureTrait", "charoption", "charoptionFluff", "recipe"],
 	async pDoHandleBrewJson (json, page, pFuncRefresh) {
 		page = BrewUtil._PAGE || page;
 		await BrewUtil._lockHandleBrewJson.pLock();
 		try {
-			return BrewUtil._pDoHandleBrewJson(json, page, pFuncRefresh);
+			await BrewUtil._pDoHandleBrewJson(json, page, pFuncRefresh);
+
+			// Allow blacklists to be loaded alongside homebrew
+			if (json.blacklist && ExcludeUtil.isInitialised) {
+				await ExcludeUtil.pSetList(ExcludeUtil.getList().concat(json.blacklist || []));
+			}
 		} finally {
 			BrewUtil._lockHandleBrewJson.unlock();
 		}
@@ -4388,7 +5212,7 @@ BrewUtil = {
 		async function pCheckAndAdd (prop) {
 			if (!BrewUtil.homebrew[prop]) BrewUtil.homebrew[prop] = [];
 			if (!(json[prop] instanceof Array)) return [];
-			if (IS_DEPLOYED || IS_VTT) {
+			if (IS_DEPLOYED || IS_VTT || IS_NODE) {
 				// in production mode, skip any existing brew
 				const areNew = [];
 				const existingIds = BrewUtil.homebrew[prop].map(it => it.uniqueId);
@@ -4403,15 +5227,14 @@ BrewUtil = {
 				// in development mode, replace any existing brew
 				const existing = {};
 				BrewUtil.homebrew[prop].forEach(it => {
-					existing[it.source] = (existing[it.source] || {});
-					existing[it.source][it.name] = it.uniqueId;
+					const brewHash = BrewUtil._getDevBrewHash(page, prop, it);
+					existing[brewHash] = it.uniqueId;
 				});
 				const pDeleteFn = BrewUtil._getPDeleteFunction(prop);
 				await Promise.all(json[prop].map(async it => {
-					// Handle magic variants
-					const itSource = it.inherits && it.inherits.source ? it.inherits.source : it.source;
-					if (existing[itSource] && existing[itSource][it.name]) {
-						await pDeleteFn(existing[itSource][it.name]);
+					const brewHash = BrewUtil._getDevBrewHash(page, prop, it);
+					if (existing[brewHash]) {
+						await pDeleteFn(existing[brewHash]);
 					}
 					BrewUtil.homebrew[prop].push(it);
 				}));
@@ -4489,6 +5312,8 @@ BrewUtil = {
 			case UrlUtil.PG_CULTS_BOONS:
 			case UrlUtil.PG_LANGUAGES:
 			case UrlUtil.PG_CHAR_CREATION_OPTIONS:
+			case UrlUtil.PG_RECIPES:
+			case UrlUtil.PG_CLASS_SUBCLASS_FEATURES:
 				await (BrewUtil._pHandleBrew || handleBrew)(MiscUtil.copy(toAdd));
 				break;
 			case UrlUtil.PG_MAKE_BREW:
@@ -4518,6 +5343,15 @@ BrewUtil = {
 			}
 			if (BrewUtil._filterBox) BrewUtil._filterBox.fireChangeEvent();
 		}
+	},
+
+	_getDevBrewHash (page, prop, it) {
+		return UrlUtil.URL_TO_HASH_BUILDER[page]
+			? UrlUtil.URL_TO_HASH_BUILDER[page](it)
+			: UrlUtil.URL_TO_HASH_BUILDER[prop]
+				? UrlUtil.URL_TO_HASH_BUILDER[prop](it)
+				// Handle magic variants
+				: `${it.inherits && it.inherits.source ? it.inherits.source : it.source}__${it.name}`;
 	},
 
 	makeBrewButton: (id) => {
@@ -4604,10 +5438,16 @@ BrewUtil = {
 	},
 
 	sourceJsonToStyle (source) {
+		const stylePart = BrewUtil.sourceJsonToStylePart(source);
+		if (!stylePart) return stylePart;
+		return `style="${stylePart}"`;
+	},
+
+	sourceJsonToStylePart (source) {
 		if (!source) return "";
 		source = source.toLowerCase();
 		const color = BrewUtil.sourceJsonToColor(source);
-		if (color) return `style="color: #${color}; border-color: #${color}; text-decoration-color: #${color};"`;
+		if (color) return `color: #${color}; border-color: #${color}; text-decoration-color: #${color};`
 		return "";
 	},
 
@@ -4675,6 +5515,7 @@ BrewUtil = {
 			// Run these in serial, to prevent any ID race condition antics
 			for (const IX_DEF of INDEX_DEFINITIONS) {
 				for (const arbiter of IX_DEF) {
+					if (arbiter.isSkipBrew) continue;
 					if (!(BrewUtil.homebrew[arbiter.brewProp || arbiter.listProp] || []).length) continue;
 
 					if (arbiter.pFnPreProcBrew) {
@@ -5045,9 +5886,11 @@ Array.prototype.equals = Array.prototype.equals || function (array2) {
 	return true;
 };
 
-Array.prototype.partition = Array.prototype.partition || function (fnIsValid) {
+// Alternate name due to clash with Foundry VTT
+Array.prototype.segregate = Array.prototype.segregate || function (fnIsValid) {
 	return this.reduce(([pass, fail], elem) => fnIsValid(elem) ? [[...pass, elem], fail] : [pass, [...fail, elem]], [[], []]);
 };
+Array.prototype.partition = Array.prototype.partition || Array.prototype.segregate;
 
 Array.prototype.getNext = Array.prototype.getNext || function (curVal) {
 	let ix = this.indexOf(curVal);
@@ -5066,11 +5909,17 @@ Array.prototype.mergeMap = Array.prototype.mergeMap || function (fnMap) {
 	return this.map((...args) => fnMap(...args)).reduce((a, b) => Object.assign(a, b), {});
 };
 
+Array.prototype.first = Array.prototype.first || function (fnMapFind) {
+	for (let i = 0, len = this.length; i < len; ++i) {
+		const result = fnMapFind(this[i], i, this);
+		if (result) return result;
+	}
+};
+
 /** Map each item via an async function, awaiting for each to complete before starting the next. */
 Array.prototype.pSerialAwaitMap = Array.prototype.pSerialAwaitMap || async function (fnMap) {
 	const out = [];
-	const len = this.length;
-	for (let i = 0; i < len; ++i) out.push(await fnMap(this[i], i));
+	for (let i = 0, len = this.length; i < len; ++i) out.push(await fnMap(this[i], i, this));
 	return out;
 };
 
@@ -5109,6 +5958,15 @@ Array.prototype.prevWrap = Array.prototype.prevWrap || function (item) {
 	} else return this[0];
 };
 
+Array.prototype.findLast = Array.prototype.findLast || function (fn) {
+	for (let i = this.length - 1; i >= 0; --i) if (fn(this[i])) return this[i];
+};
+
+Array.prototype.findLastIndex = Array.prototype.findLastIndex || function (fn) {
+	for (let i = this.length - 1; i >= 0; --i) if (fn(this[i])) return i;
+	return -1;
+};
+
 Array.prototype.sum = Array.prototype.sum || function () {
 	let tmp = 0;
 	const len = this.length;
@@ -5134,17 +5992,19 @@ Array.prototype.meanAbsoluteDeviation = Array.prototype.meanAbsoluteDeviation ||
  * @param opts Options object.
  * @param opts.hashKey to use in the URL so that forward/back can open/close the view
  * @param opts.$openBtn jQuery-selected button to bind click open/close
- * @param opts.noneVisibleMsg "error" message to display if user has not selected any viewable content
+ * @param opts.$eleNoneVisible "error" message to display if user has not selected any viewable content
  * @param opts.pageTitle Title.
  * @param opts.state State to modify when opening/closing.
  * @param opts.stateKey Key in state to set true/false when opening/closing.
  * @param opts.popTblGetNumShown function which should populate the view with HTML content and return the number of items displayed
  * @param [opts.hasPrintColumns] True if the overlay should contain a dropdown for adjusting print columns.
+ * @param [opts.isHideContentOnNoneShown]
+ * @param [opts.isHideButtonCloseNone]
  * @constructor
  */
 function BookModeView (opts) {
 	opts = opts || {};
-	const {hashKey, $openBtn, noneVisibleMsg, pageTitle, popTblGetNumShown, isFlex, state, stateKey} = opts;
+	const {hashKey, $openBtn, $eleNoneVisible, pageTitle, popTblGetNumShown, isFlex, state, stateKey, isHideContentOnNoneShown, isHideButtonCloseNone} = opts;
 
 	if (hashKey && stateKey) throw new Error();
 
@@ -5152,8 +6012,10 @@ function BookModeView (opts) {
 	this.stateKey = stateKey;
 	this.state = state;
 	this.$openBtn = $openBtn;
-	this.noneVisibleMsg = noneVisibleMsg;
+	this.$eleNoneVisible = $eleNoneVisible;
 	this.popTblGetNumShown = popTblGetNumShown;
+	this.isHideContentOnNoneShown = isHideContentOnNoneShown;
+	this.isHideButtonCloseNone = isHideButtonCloseNone;
 
 	this.active = false;
 	this._$body = null;
@@ -5171,6 +6033,8 @@ function BookModeView (opts) {
 		}
 	});
 
+	this.close = () => { return this._doHashTeardown(); };
+
 	this._doHashTeardown = () => {
 		if (this.stateKey) {
 			this.state[this.stateKey] = false;
@@ -5181,26 +6045,29 @@ function BookModeView (opts) {
 
 	this._renderContent = async ($wrpContent, $dispName, $wrpControlsToPass) => {
 		this._$wrpRenderedContent = this._$wrpRenderedContent
-			? this._$wrpRenderedContent.empty()
-			: $$`<div class="bkmv__scroller h-100 overflow-y-auto ${isFlex ? "flex" : ""}">${$wrpContent}</div>`.appendTo(this._$wrpBook);
+			? this._$wrpRenderedContent.empty().append($wrpContent)
+			: $$`<div class="bkmv__scroller h-100 overflow-y-auto ${isFlex ? "flex" : ""}">${this.isHideContentOnNoneShown ? null : $wrpContent}</div>`;
+		this._$wrpRenderedContent.appendTo(this._$wrpBook);
 
 		const numShown = await this.popTblGetNumShown($wrpContent, $dispName, $wrpControlsToPass);
 
 		if (numShown) {
+			if (this.isHideContentOnNoneShown) this._$wrpRenderedContent.append($wrpContent);
 			if (this._$wrpNoneShown) {
-				this._$wrpNoneShown.remove();
-				this._$wrpNoneShown = null;
+				this._$wrpNoneShown.detach();
 			}
 		} else {
+			if (this.isHideContentOnNoneShown) $wrpContent.detach();
 			if (!this._$wrpNoneShown) {
 				const $btnClose = $(`<button class="btn btn-default">Close</button>`)
-					.click(() => this._doHashTeardown());
+					.click(() => this.close());
 
-				this._$wrpNoneShown = $$`<div class="w-100 flex-col no-shrink bkmv__footer mb-3">
-					<div class="mb-2 flex-vh-center"><span class="initial-message">${this.noneVisibleMsg}</span></div>
-					<div class="flex-vh-center">${$btnClose}</div>
-				</div>`.appendTo(this._$wrpBook);
+				this._$wrpNoneShown = $$`<div class="w-100 flex-col flex-h-center no-shrink bkmv__footer mb-3">
+					<div class="mb-2 flex-vh-center min-h-0">${this.$eleNoneVisible}</div>
+					${this.isHideButtonCloseNone ? null : $$`<div class="flex-vh-center">${$btnClose}</div>`}
+				</div>`;
 			}
+			this._$wrpNoneShown.appendTo(this.isHideContentOnNoneShown ? this._$wrpRenderedContent : this._$wrpBook);
 		}
 	};
 
@@ -5253,7 +6120,7 @@ function BookModeView (opts) {
 			$selColumns.change();
 
 			$wrpControlsToPass = $$`<div class="w-100 flex">
-				<div class="flex-vh-center"><div class="mr-2 no-wrap help--subtle" title="Applied when printing the page.">Print columns:</div>${$selColumns}</div>
+				<div class="flex-vh-center"><div class="mr-2 no-wrap help-subtle" title="Applied when printing the page.">Print columns:</div>${$selColumns}</div>
 			</div>`.appendTo($wrpControls);
 		}
 		// endregion
@@ -5269,13 +6136,14 @@ function BookModeView (opts) {
 
 	this.teardown = () => {
 		if (this.active) {
+			if (this._$wrpRenderedContent) this._$wrpRenderedContent.detach();
+			if (this._$wrpNoneShown) this._$wrpNoneShown.detach();
+
 			this._$body.css("overflow", "");
 			this._$body.removeClass("bkmv-active");
 			this._$wrpBook.remove();
 			this.active = false;
 
-			this._$wrpRenderedContent = null;
-			this._$wrpNoneShown = null;
 			this._pRenderContent = null;
 		}
 	};
@@ -5449,7 +6317,7 @@ EncounterUtil = {
 	getEncounterName (encounter) {
 		if (encounter.l && encounter.l.items && encounter.l.items.length) {
 			const largestCount = encounter.l.items.sort((a, b) => SortUtil.ascSort(Number(b.c), Number(a.c)))[0];
-			const name = decodeURIComponent(largestCount.h.split(HASH_LIST_SEP)[0]).toTitleCase();
+			const name = (UrlUtil.decodeHash(largestCount.h)[0] || "(Unnamed)").toTitleCase();
 			return `Encounter with ${name} ×${largestCount.c}`;
 		} else return "(Unnamed Encounter)"
 	},
@@ -5471,7 +6339,8 @@ ExtensionUtil = {
 		const page = $parent.attr("data-page");
 		const source = $parent.attr("data-source");
 		const hash = $parent.attr("data-hash");
-		const extensionData = $parent.attr("data-extension");
+		const rawExtensionData = $parent.attr("data-extension");
+		const extensionData = rawExtensionData ? JSON.parse(rawExtensionData) : null;
 
 		if (page && source && hash) {
 			let toSend = await Renderer.hover.pCacheAndGet(page, source, hash);
@@ -5479,7 +6348,8 @@ ExtensionUtil = {
 			if (extensionData) {
 				switch (page) {
 					case UrlUtil.PG_BESTIARY: {
-						toSend = await ScaleCreature.scale(toSend, Number(extensionData));
+						if (extensionData._scaledCr) toSend = await ScaleCreature.scale(toSend, extensionData._scaledCr);
+						else if (extensionData._scaledSummonLevel) toSend = await ScaleSummonCreature.scale(toSend, extensionData._scaledSummonLevel);
 					}
 				}
 			}

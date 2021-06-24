@@ -140,6 +140,7 @@
 					]
 				}
 			],
+			"hasToken": true,
 			"senseTags": [
 				"D"
 			],
@@ -164,7 +165,8 @@
 				"charmed",
 				"incapacitated",
 				"stunned"
-			]
+			],
+			"hasFluffImages": true
 		},
 		{
 			"name": "Andras",
@@ -488,6 +490,9 @@
 						"If the medusa sees itself reflected on a polished surface within 30 feet of it and in an area of bright light, the medusa is, due to its curse, affected by its own gaze."
 					]
 				}
+			],
+			"spellcastingTags": [
+				"I"
 			]
 		},
 		{
@@ -664,7 +669,8 @@
 			],
 			"miscTags": [
 				"MW"
-			]
+			],
+			"hasFluff": true
 		},
 		{
 			"name": "Moghadam",
@@ -826,6 +832,7 @@
 					]
 				}
 			],
+			"hasToken": true,
 			"languageTags": [
 				"AB",
 				"C",
@@ -842,7 +849,8 @@
 			],
 			"miscTags": [
 				"MW"
-			]
+			],
+			"hasFluffImages": true
 		},
 		{
 			"name": "Neo-Otyugh",
@@ -940,6 +948,7 @@
 					]
 				}
 			],
+			"hasToken": true,
 			"senseTags": [
 				"SD"
 			],
@@ -971,7 +980,9 @@
 			"conditionInflictSpell": [
 				"paralyzed",
 				"prone"
-			]
+			],
+			"hasFluff": true,
+			"hasFluffImages": true
 		},
 		{
 			"name": "Seodra",
@@ -1157,7 +1168,8 @@
 			],
 			"conditionInflict": [
 				"prone"
-			]
+			],
+			"hasFluff": true
 		},
 		{
 			"name": "Skeletal Giant Owl",
@@ -1339,7 +1351,7 @@
 			],
 			"hp": {
 				"average": 104,
-				"formula": "7d10 + 14"
+				"formula": "19d8 + 19"
 			},
 			"speed": {
 				"walk": 30
@@ -1468,6 +1480,7 @@
 					]
 				}
 			],
+			"hasToken": true,
 			"languageTags": [
 				"C",
 				"DR",
@@ -1484,7 +1497,9 @@
 				"MW",
 				"RW",
 				"THW"
-			]
+			],
+			"hasFluff": true,
+			"hasFluffImages": true
 		},
 		{
 			"name": "Thessalar's Homunculus",
@@ -1577,6 +1592,7 @@
 					]
 				}
 			],
+			"hasToken": true,
 			"senseTags": [
 				"D"
 			],
@@ -1592,7 +1608,9 @@
 			"conditionInflict": [
 				"poisoned",
 				"unconscious"
-			]
+			],
+			"hasFluff": true,
+			"hasFluffImages": true
 		},
 		{
 			"name": "Thessalkraken",
@@ -1774,7 +1792,8 @@
 				"grappled",
 				"prone",
 				"restrained"
-			]
+			],
+			"hasFluff": true
 		},
 		{
 			"name": "Tiefling Muralist",
@@ -1799,6 +1818,9 @@
 				"C",
 				"I",
 				"X"
+			],
+			"spellcastingTags": [
+				"I"
 			]
 		},
 		{
@@ -1961,6 +1983,7 @@
 					]
 				}
 			],
+			"hasToken": true,
 			"senseTags": [
 				"D"
 			],
@@ -1973,7 +1996,8 @@
 			],
 			"miscTags": [
 				"MW"
-			]
+			],
+			"hasFluffImages": true
 		}
 	]
 }

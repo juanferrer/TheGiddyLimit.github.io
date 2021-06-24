@@ -55,14 +55,16 @@ class RenderSpells {
 			}
 		}
 
-		if (sp.races) {
-			sp.races.sort((a, b) => SortUtil.ascSortLower(a.name, b.name) || SortUtil.ascSortLower(a.source, b.source));
-			stackFroms.push(`<div><span class="bold">Races: </span>${sp.races.map(r => `${SourceUtil.isNonstandardSource(r.source) ? `<span class="text-muted">` : ``}${renderer.render(`{@race ${r.name}|${r.source}}`)}${SourceUtil.isNonstandardSource(r.source) ? `</span>` : ``}`).join(", ")}</div>`);
+		const fromRaces = Renderer.spell.getCombinedRaces(sp);
+		if (fromRaces.length) {
+			fromRaces.sort((a, b) => SortUtil.ascSortLower(a.name, b.name) || SortUtil.ascSortLower(a.source, b.source));
+			stackFroms.push(`<div><span class="bold">Races: </span>${fromRaces.map(r => `${SourceUtil.isNonstandardSource(r.source) ? `<span class="text-muted">` : ``}${renderer.render(`{@race ${r.name}|${r.source}}`)}${SourceUtil.isNonstandardSource(r.source) ? `</span>` : ``}`).join(", ")}</div>`);
 		}
 
-		if (sp.backgrounds) {
-			sp.backgrounds.sort((a, b) => SortUtil.ascSortLower(a.name, b.name) || SortUtil.ascSortLower(a.source, b.source));
-			stackFroms.push(`<div><span class="bold">Backgrounds: </span>${sp.backgrounds.map(r => `${SourceUtil.isNonstandardSource(r.source) ? `<span class="text-muted">` : ``}${renderer.render(`{@background ${r.name}|${r.source}}`)}${SourceUtil.isNonstandardSource(r.source) ? `</span>` : ``}`).join(", ")}</div>`);
+		const fromBackgrounds = Renderer.spell.getCombinedBackgrounds(sp);
+		if (fromBackgrounds.length) {
+			fromBackgrounds.sort((a, b) => SortUtil.ascSortLower(a.name, b.name) || SortUtil.ascSortLower(a.source, b.source));
+			stackFroms.push(`<div><span class="bold">Backgrounds: </span>${fromBackgrounds.map(r => `${SourceUtil.isNonstandardSource(r.source) ? `<span class="text-muted">` : ``}${renderer.render(`{@background ${r.name}|${r.source}}`)}${SourceUtil.isNonstandardSource(r.source) ? `</span>` : ``}`).join(", ")}</div>`);
 		}
 
 		if (sp.eldritchInvocations) {
@@ -86,48 +88,5 @@ class RenderSpells {
 		`);
 
 		return $(renderStack.join(""));
-	}
-
-	static async pGetSubclassLookup () {
-		const subclassLookup = {};
-		Object.assign(subclassLookup, await DataUtil.loadJSON(`data/generated/gendata-subclass-lookup.json`));
-		const homebrew = await BrewUtil.pAddBrewData();
-		RenderSpells.mergeHomebrewSubclassLookup(subclassLookup, homebrew);
-		return subclassLookup
-	}
-
-	static mergeHomebrewSubclassLookup (subclassLookup, homebrew) {
-		if (homebrew.class) {
-			homebrew.class.filter(it => it.subclasses).forEach(c => {
-				(subclassLookup[c.source] =
-					subclassLookup[c.source] || {})[c.name] =
-					subclassLookup[c.source][c.name] || {};
-
-				const target = subclassLookup[c.source][c.name];
-				c.subclasses.forEach(sc => {
-					sc.source = sc.source || c.source;
-					sc.shortName = sc.shortName || sc.name;
-					(target[sc.source] =
-						target[sc.source] || {})[sc.shortName] =
-						target[sc.source][sc.shortName] || {name: sc.name}
-				});
-			})
-		}
-
-		if (homebrew.subclass) {
-			homebrew.subclass.forEach(sc => {
-				const clSrc = sc.classSource || SRC_PHB;
-				sc.shortName = sc.shortName || sc.name;
-
-				(subclassLookup[clSrc] =
-					subclassLookup[clSrc] || {})[sc.className] =
-					subclassLookup[clSrc][sc.className] || {};
-
-				const target = subclassLookup[clSrc][sc.className];
-				(target[sc.source] =
-					target[sc.source] || {})[sc.shortName] =
-					target[sc.source][sc.shortName] || {name: sc.name}
-			})
-		}
 	}
 }

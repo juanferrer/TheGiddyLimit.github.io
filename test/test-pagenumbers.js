@@ -24,6 +24,7 @@ const BLACKLIST_KEYS = new Set([
 	"_meta",
 	"data",
 	"itemProperty",
+	"itemEntry",
 	"lifeClass",
 	"lifeBackground",
 	"lifeTrinket",
@@ -33,6 +34,7 @@ const BLACKLIST_KEYS = new Set([
 	"book",
 	"itemTypeAdditionalEntries",
 	"legendaryGroup",
+	"languageScript",
 ]);
 
 // Sources which only exist in digital form
@@ -43,7 +45,6 @@ const BLACKLIST_SOURCES = new Set([
 ]);
 
 const SUB_KEYS = {
-	class: ["subclasses"],
 	race: ["subraces"],
 };
 

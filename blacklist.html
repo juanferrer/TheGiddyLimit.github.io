@@ -14,9 +14,7 @@
 	<title>Content Blacklist - 5etools</title>
 
 	<link rel="stylesheet" href="css/bootstrap.css">
-	<link rel="stylesheet" href="css/jquery-ui.css">
-	<link rel="stylesheet" href="css/jquery-ui-slider-pips.css">
-	<link rel="stylesheet" href="css/style.css">
+	<link rel="stylesheet" href="css/main.css">
 
 	<!-- Favicons -->
 	<link rel="icon" type="image/svg+xml" href="favicon.svg?v=1.115">
@@ -30,7 +28,7 @@
 
 	<!-- Chrome Web App Icons -->
 	<link rel="manifest" href="manifest.webmanifest">
-	<meta name="application-name" content="5eTools">
+	<meta name="application-name" content="5etools">
 	<meta name="theme-color" content="#006bc4">
 
 	<!-- Windows Start Menu tiles -->
@@ -43,7 +41,7 @@
 	<link rel="apple-touch-icon" sizes="167x167" href="apple-touch-icon-167x167.png">
 	<link rel="apple-touch-icon" sizes="152x152" href="apple-touch-icon-152x152.png">
 	<link rel="apple-touch-icon" sizes="120x120" href="apple-touch-icon-120x120.png">
-	<meta name="apple-mobile-web-app-title" content="5eTools">
+	<meta name="apple-mobile-web-app-title" content="5etools">
 
 	<!-- macOS Safari Pinned Tab and Touch Bar -->
 	<link rel="mask-icon" href="safari-pinned-tab.svg" color="#006bc4">
@@ -122,8 +120,8 @@
 		</div>
 	</div>
 
-	<div class="row">
-		<div class="form-group col-3">
+	<div class="row flex-v-center">
+		<div class="form-group col-3 pr-2">
 			<label for="bl-source">Source</label>
 			<select class="loading form-control form-inline" id="bl-source" disabled>
 				<option class="loading-temp" value="loading">Loading...</option>
@@ -131,7 +129,7 @@
 			</select>
 		</div>
 
-		<div class="form-group col-3">
+		<div class="form-group col-3 px-2">
 			<label for="bl-category">Category</label>
 			<select class="loading form-control form-inline" id="bl-category" disabled>
 				<option class="loading-temp" value="loading">Loading...</option>
@@ -139,7 +137,7 @@
 			</select>
 		</div>
 
-		<div class="form-group col-3">
+		<div class="form-group col-3 px-2">
 			<label for="bl-name">Name</label>
 			<select class="loading form-control form-inline" id="bl-name" disabled>
 				<option class="loading-temp" value="loading">Loading...</option>
@@ -147,8 +145,8 @@
 			</select>
 		</div>
 
-		<div class="form-group col-3">
-			<div style="padding-top: 25px;">
+		<div class="form-group col-3 pl-2">
+			<div style="padding-top: 21px;">
 				<button class="loading btn btn-default" onclick="Blacklist.add()" disabled>Add Exclusion</button>
 			</div>
 		</div>
@@ -157,7 +155,7 @@
 	<div class="row">
 		<div class="form-group col-12">
 			<button class="btn btn-default" onclick="Blacklist.export()">Export List</button>
-			<button class="btn btn-default" onclick="Blacklist.import(event)" title="SHIFT for Add Only">Import List</button>
+			<button class="btn btn-default" onclick="Blacklist.pImport(event)" title="SHIFT for Add Only">Import List</button>
 			<button class="btn btn-danger btn-offset" onclick="window.confirm('Are you sure?') && Blacklist.reset()">Reset List</button>
 		</div>
 	</div>
@@ -184,14 +182,12 @@
 			<button class="col-1 sort btn btn-default btn-xs" disabled>&nbsp;</button>
 		</div>
 
-		<ul class="list-display-only blacklist"></ul>
+		<div class="list-display-only blacklist"></div>
 	</div>
 </main>
 <!--5ETOOLS_SCRIPT_ANCHOR-->
 <!--5ETOOLS_AD_ADHESION-->
 <script type="text/javascript" src="lib/jquery.js"></script>
-<script type="text/javascript" src="lib/jquery-ui.js"></script>
-<script type="text/javascript" src="lib/jquery-ui-slider-pip.js"></script>
 <script type="text/javascript" src="js/parser.js"></script>
 <script type="text/javascript" src="js/utils.js"></script>
 <script type="text/javascript" src="js/utils-ui.js"></script>

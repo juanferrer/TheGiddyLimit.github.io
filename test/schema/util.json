@@ -4,7 +4,7 @@
 
 	"title": "Util",
 	"description": "Utility definitions to be used in other schemas.",
-	"version": "1.1.0",
+	"version": "1.4.3",
 
 	"definitions" : {
 		"metaBlock": {
@@ -69,6 +69,35 @@
 			}
 		},
 
+		"languageNameLower": {
+			"type": "string",
+			"enum": [
+				"abyssal",
+				"aquan",
+				"auran",
+				"celestial",
+				"common",
+				"deep speech",
+				"draconic",
+				"druidic",
+				"dwarvish",
+				"elvish",
+				"giant",
+				"gnomish",
+				"goblin",
+				"halfling",
+				"ignan",
+				"infernal",
+				"orc",
+				"other",
+				"primordial",
+				"sylvan",
+				"terran",
+				"thieves' cant",
+				"undercommon"
+			]
+		},
+
 		"languageProficiencies": {
 			"type": "array",
 			"items": {
@@ -80,21 +109,7 @@
 							"from": {
 								"type": "array",
 								"items": {
-									"enum": [
-										"abyssal",
-										"celestial",
-										"deep speech",
-										"draconic",
-										"infernal",
-										"primordial",
-										"sylvan",
-										"undercommon",
-										"dwarvish",
-										"elvish",
-										"giant",
-										"goblin",
-										"other"
-									]
+									"$ref": "#/definitions/languageNameLower"
 								}
 							},
 							"count": {
@@ -153,42 +168,39 @@
 			"items": {
 				"type": "object",
 				"properties": {
-					"artisan's tools": {
-						"type": "boolean"
-					},
-					"cartographer's tools": {
-						"type": "boolean"
-					},
-					"disguise kit": {
-						"type": "boolean"
-					},
-					"forgery kit": {
-						"type": "boolean"
-					},
-					"gaming set": {
-						"type": "boolean"
-					},
-					"herbalism kit": {
-						"type": "boolean"
-					},
-					"musical instrument": {
-						"type": "boolean"
-					},
-					"navigator's tools": {
-						"type": "boolean"
-					},
-					"thieves' tools": {
-						"type": "boolean"
-					},
-					"vehicles (land)": {
-						"type": "boolean"
-					},
-					"vehicles (water)": {
-						"type": "boolean"
-					},
-					"any": {
-						"type": "integer"
-					},
+					"artisan's tools": {"type": "boolean"},
+
+					"alchemist's supplies": {"type": "boolean"},
+					"brewer's supplies":{"type": "boolean"},
+					"calligrapher's supplies": {"type": "boolean"},
+					"carpenter's tools":{"type": "boolean"},
+					"cartographer's tools": {"type": "boolean"},
+					"cobbler's tools":{"type": "boolean"},
+					"cook's utensils": {"type": "boolean"},
+					"glassblower's tools":{"type": "boolean"},
+					"jeweler's tools": {"type": "boolean"},
+					"leatherworker's tools":{"type": "boolean"},
+					"mason's tools": {"type": "boolean"},
+					"painter's supplies":{"type": "boolean"},
+					"potter's tools": {"type": "boolean"},
+					"smith's tools":{"type": "boolean"},
+					"tinker's tools": {"type": "boolean"},
+					"weaver's tools":{"type": "boolean"},
+					"woodcarver's tools": {"type": "boolean"},
+
+					"disguise kit": {"type": "boolean"},
+					"forgery kit": {"type": "boolean"},
+					"gaming set": {"type": "boolean"},
+					"herbalism kit": {"type": "boolean"},
+					"musical instrument": {"type": "boolean"},
+					"navigator's tools": {"type": "boolean"},
+					"thieves' tools": {"type": "boolean"},
+					"vehicles (land)": {"type": "boolean"},
+					"vehicles (water)": {"type": "boolean"},
+					"poisoner's kit": {"type": "boolean"},
+
+					"any": {"type": "integer"},
+
 					"choose": {
 						"type": "object",
 						"properties": {
@@ -197,7 +209,25 @@
 								"items": {
 									"enum": [
 										"artisan's tools",
+
+										"alchemist's supplies",
+										"brewer's supplies",
+										"calligrapher's supplies",
+										"carpenter's tools",
 										"cartographer's tools",
+										"cobbler's tools",
+										"cook's utensils",
+										"glassblower's tools",
+										"jeweler's tools",
+										"leatherworker's tools",
+										"mason's tools",
+										"painter's supplies",
+										"potter's tools",
+										"smith's tools",
+										"tinker's tools",
+										"weaver's tools",
+										"woodcarver's tools",
+
 										"disguise kit",
 										"forgery kit",
 										"gaming set",
@@ -206,8 +236,7 @@
 										"navigator's tools",
 										"thieves' tools",
 										"vehicles (land)",
-										"vehicles (water)",
-										"alchemist's supplies"
+										"vehicles (water)"
 									]
 								}
 							},
@@ -220,80 +249,273 @@
 			}
 		},
 
-		"skillProficiencies": {
-			"athletics": {"type": "boolean"},
-			"acrobatics":{"type": "boolean"},
-			"sleight of hand": {"type": "boolean"},
-			"stealth":{"type": "boolean"},
-			"arcana": {"type": "boolean"},
-			"history":{"type": "boolean"},
-			"investigation": {"type": "boolean"},
-			"nature":{"type": "boolean"},
-			"religion": {"type": "boolean"},
-			"animal handling":{"type": "boolean"},
-			"insight": {"type": "boolean"},
-			"medicine":{"type": "boolean"},
-			"perception": {"type": "boolean"},
-			"survival":{"type": "boolean"},
-			"deception": {"type": "boolean"},
-			"intimidation":{"type": "boolean"},
-			"performance": {"type": "boolean"},
-			"persuasion":{"type": "boolean"},
+		"skillNameLower": {
+			"type": "string",
+			"enum": [
+				"athletics",
+				"acrobatics",
+				"sleight of hand",
+				"stealth",
+				"arcana",
+				"history",
+				"investigation",
+				"nature",
+				"religion",
+				"animal handling",
+				"insight",
+				"medicine",
+				"perception",
+				"survival",
+				"deception",
+				"intimidation",
+				"performance",
+				"persuasion"
+			]
+		},
 
-			"choose": {
-				"type": "array",
-				"items": {
-					"type": "object",
-					"properties": {
-						"from": {
-							"type": "array",
-							"items": {
-								"oneOf": [
-									{
-										"enum": [
-											"athletics",
-											"acrobatics",
-											"sleight of hand",
-											"stealth",
-											"arcana",
-											"history",
-											"investigation",
-											"nature",
-											"religion",
-											"animal handling",
-											"insight",
-											"medicine",
-											"perception",
-											"survival",
-											"deception",
-											"intimidation",
-											"performance",
-											"persuasion"
-										]
-									},
-									{
-										"type": "object",
-										"properties": {
-											"tool": {
-												"type": "array",
-												"items": {
-													"type": "string"
+		"skillProficiencies": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"athletics": {"type": "boolean"},
+					"acrobatics":{"type": "boolean"},
+					"sleight of hand": {"type": "boolean"},
+					"stealth":{"type": "boolean"},
+					"arcana": {"type": "boolean"},
+					"history":{"type": "boolean"},
+					"investigation": {"type": "boolean"},
+					"nature":{"type": "boolean"},
+					"religion": {"type": "boolean"},
+					"animal handling":{"type": "boolean"},
+					"insight": {"type": "boolean"},
+					"medicine":{"type": "boolean"},
+					"perception": {"type": "boolean"},
+					"survival":{"type": "boolean"},
+					"deception": {"type": "boolean"},
+					"intimidation":{"type": "boolean"},
+					"performance": {"type": "boolean"},
+					"persuasion":{"type": "boolean"},
+
+					"tool": {"type": "boolean"},
+
+					"choose": {
+						"type": "object",
+						"properties": {
+							"from": {
+								"type": "array",
+								"items": {
+									"oneOf": [
+										{
+											"$ref": "#/definitions/skillNameLower"
+										},
+										{
+											"type": "object",
+											"properties": {
+												"tool": {
+													"type": "array",
+													"items": {
+														"type": "string"
+													}
+												}
+											}
+										},
+										{
+											"type": "object",
+											"properties": {
+												"tool": {
+													"type": "boolean"
 												}
 											}
 										}
-									},
-									{
-										"type": "object",
-										"properties": {
-											"tool": {
-												"type": "boolean"
-											}
-										}
-									}
-								]
+									]
+								}
 							}
 						}
+
 					}
+				},
+				"additionalProperties": false
+			}
+		},
+
+		"weaponProficiencies": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"simple": {"type": "boolean"},
+					"martial": {"type": "boolean"},
+					"firearms": {"type": "boolean"},
+
+					"battleaxe|phb": {"type": "boolean"},
+					"club|phb": {"type": "boolean"},
+					"dagger|phb":  {"type": "boolean"},
+					"flail|phb": {"type": "boolean"},
+					"glaive|phb":  {"type": "boolean"},
+					"greataxe|phb": {"type": "boolean"},
+					"greatclub|phb":  {"type": "boolean"},
+					"greatsword|phb": {"type": "boolean"},
+					"halberd|phb":  {"type": "boolean"},
+					"handaxe|phb": {"type": "boolean"},
+					"javelin|phb":  {"type": "boolean"},
+					"lance|phb": {"type": "boolean"},
+					"light hammer|phb":  {"type": "boolean"},
+					"longsword|phb": {"type": "boolean"},
+					"mace|phb":  {"type": "boolean"},
+					"maul|phb": {"type": "boolean"},
+					"morningstar|phb":  {"type": "boolean"},
+					"pike|phb": {"type": "boolean"},
+					"quarterstaff|phb":  {"type": "boolean"},
+					"rapier|phb": {"type": "boolean"},
+					"scimitar|phb":  {"type": "boolean"},
+					"shortsword|phb": {"type": "boolean"},
+					"sickle|phb":  {"type": "boolean"},
+					"spear|phb": {"type": "boolean"},
+					"staff|phb":  {"type": "boolean"},
+					"trident|phb": {"type": "boolean"},
+					"war pick|phb":  {"type": "boolean"},
+					"warhammer|phb": {"type": "boolean"},
+					"whip|phb":  {"type": "boolean"},
+					"blowgun|phb": {"type": "boolean"},
+					"dart|phb":  {"type": "boolean"},
+					"hand crossbow|phb": {"type": "boolean"},
+					"heavy crossbow|phb":  {"type": "boolean"},
+					"light crossbow|phb": {"type": "boolean"},
+					"longbow|phb":  {"type": "boolean"},
+					"net|phb": {"type": "boolean"},
+					"shortbow|phb":  {"type": "boolean"},
+					"sling|phb": {"type": "boolean"},
+					"double-bladed scimitar|erlw":  {"type": "boolean"},
+
+					"choose": {
+						"type": "object",
+						"properties": {
+							"from": {
+								"description": "A filter string, e.g. \"type=martial weapon|miscellaneous=mundane\"",
+								"type": "string"
+							},
+							"count": {"type": "integer"}
+						},
+						"additionalProperties": false
+					}
+				},
+				"additionalProperties": false
+			}
+		},
+
+		"armorProficiencies": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"light":  {"type": "boolean"},
+					"medium": {"type": "boolean"},
+					"heavy":  {"type": "boolean"},
+					"shield|phb": {"type": "boolean"}
+				},
+				"additionalProperties": false
+			}
+		},
+
+		"savingThrowProficiencies": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"str":  {"type": "boolean"},
+					"dex":  {"type": "boolean"},
+					"con":  {"type": "boolean"},
+					"int":  {"type": "boolean"},
+					"wis":  {"type": "boolean"},
+					"cha":  {"type": "boolean"},
+
+					"choose": {
+						"type": "object",
+						"properties": {
+							"from": {
+								"type": "array",
+								"items": {
+									"enum": [
+										"str",
+										"dex",
+										"con",
+										"int",
+										"wis",
+										"cha"
+									]
+								}
+							},
+							"count": {"type": "integer"}
+						},
+						"required": ["from"],
+						"additionalProperties": false
+					}
+				},
+				"additionalProperties": false
+			}
+		},
+
+		"expertise": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"anyProficientSkill": {"type": "number"},
+
+					"athletics": {"type": "boolean"},
+					"acrobatics":{"type": "boolean"},
+					"sleight of hand": {"type": "boolean"},
+					"stealth":{"type": "boolean"},
+					"arcana": {"type": "boolean"},
+					"history":{"type": "boolean"},
+					"investigation": {"type": "boolean"},
+					"nature":{"type": "boolean"},
+					"religion": {"type": "boolean"},
+					"animal handling":{"type": "boolean"},
+					"insight": {"type": "boolean"},
+					"medicine":{"type": "boolean"},
+					"perception": {"type": "boolean"},
+					"survival":{"type": "boolean"},
+					"deception": {"type": "boolean"},
+					"intimidation":{"type": "boolean"},
+					"performance": {"type": "boolean"},
+					"persuasion":{"type": "boolean"},
+
+
+
+					"anyProficientTool": {"type": "number"},
+
+					"artisan's tools": {"type": "boolean"},
+
+					"alchemist's supplies": {"type": "boolean"},
+					"brewer's supplies":{"type": "boolean"},
+					"calligrapher's supplies": {"type": "boolean"},
+					"carpenter's tools":{"type": "boolean"},
+					"cartographer's tools": {"type": "boolean"},
+					"cobbler's tools":{"type": "boolean"},
+					"cook's utensils": {"type": "boolean"},
+					"glassblower's tools":{"type": "boolean"},
+					"jeweler's tools": {"type": "boolean"},
+					"leatherworker's tools":{"type": "boolean"},
+					"mason's tools": {"type": "boolean"},
+					"painter's supplies":{"type": "boolean"},
+					"potter's tools": {"type": "boolean"},
+					"smith's tools":{"type": "boolean"},
+					"tinker's tools": {"type": "boolean"},
+					"weaver's tools":{"type": "boolean"},
+					"woodcarver's tools": {"type": "boolean"},
+
+					"disguise kit": {"type": "boolean"},
+					"forgery kit": {"type": "boolean"},
+					"gaming set": {"type": "boolean"},
+					"herbalism kit": {"type": "boolean"},
+					"musical instrument": {"type": "boolean"},
+					"navigator's tools": {"type": "boolean"},
+					"thieves' tools": {"type": "boolean"},
+					"vehicles (land)": {"type": "boolean"},
+					"vehicles (water)": {"type": "boolean"},
+					"poisoner's kit": {"type": "boolean"}
 				}
 			}
 		},
@@ -617,6 +839,37 @@
 			]
 		},
 
+		"alignment": {
+			"type": "string",
+			"enum": [
+				"L",
+				"N",
+				"NX",
+				"NY",
+				"C",
+				"G",
+				"E",
+				"U",
+				"A"
+			]
+		},
+
+		"size": {
+			"type": "string",
+			"enum": [
+				"F",
+				"D",
+				"T",
+				"S",
+				"M",
+				"L",
+				"H",
+				"G",
+				"C",
+				"V"
+			]
+		},
+
 		"dataCondition": {
 			"type": "string",
 			"enum": [
@@ -656,6 +909,13 @@
 				"radiant",
 				"slashing",
 				"thunder"
+			]
+		},
+
+		"dataOptionalfeatureType": {
+			"type": "string",
+			"enum": [
+				"ED", "EI", "MM", "MV", "MV:B", "OTH", "FS:F", "FS:B", "FS:R", "FS:P", "MV:C2-UA", "AS:V1-UA", "AS:V2-UA", "AS", "PB", "AI", "SHP:H", "SHP:M", "SHP:W", "SHP:F", "SHP:O", "IWM:W", "IWM:A", "IWM:G", "OR", "RN", "AF"
 			]
 		},
 
@@ -705,6 +965,31 @@
 				}
 			]
 		},
+		"damageImmunityArrayPlayer": {
+			"type": "array",
+			"items": {
+				"oneOf": [
+					{
+						"$ref": "#/definitions/dataDamageType"
+					},
+					{
+						"type": "object",
+						"properties": {
+							"choose": {
+								"type": "object",
+								"properties": {
+									"from": {
+										"$ref": "#/definitions/damageImmunityArrayPlayer"
+									}
+								},
+								"additionalProperties": false,
+								"required": ["from"]
+							}
+						}
+					}
+				]
+			}
+		},
 
 		"damageResistArray": {
 			"oneOf": [
@@ -751,6 +1036,31 @@
 					"type": "null"
 				}
 			]
+		},
+		"damageResistArrayPlayer": {
+			"type": "array",
+			"items": {
+				"oneOf": [
+					{
+						"$ref": "#/definitions/dataDamageType"
+					},
+					{
+						"type": "object",
+						"properties": {
+							"choose": {
+								"type": "object",
+								"properties": {
+									"from": {
+										"$ref": "#/definitions/damageResistArrayPlayer"
+									}
+								},
+								"additionalProperties": false,
+								"required": ["from"]
+							}
+						}
+					}
+				]
+			}
 		},
 
 		"damageVulnerabilityArray":  {
@@ -799,6 +1109,31 @@
 				}
 			]
 		},
+		"damageVulnerabilityArrayPlayer": {
+			"type": "array",
+			"items": {
+				"oneOf": [
+					{
+						"$ref": "#/definitions/dataDamageType"
+					},
+					{
+						"type": "object",
+						"properties": {
+							"choose": {
+								"type": "object",
+								"properties": {
+									"from": {
+										"$ref": "#/definitions/damageVulnerabilityArrayPlayer"
+									}
+								},
+								"additionalProperties": false,
+								"required": ["from"]
+							}
+						}
+					}
+				]
+			}
+		},
 
 		"conditionImmunityArray": {
 			"oneOf": [
@@ -843,6 +1178,31 @@
 				}
 			]
 		},
+		"conditionImmunityArrayPlayer": {
+			"type": "array",
+			"items": {
+				"oneOf": [
+					{
+						"$ref": "#/definitions/dataCondition"
+					},
+					{
+						"type": "object",
+						"properties": {
+							"choose": {
+								"type": "object",
+								"properties": {
+									"from": {
+										"$ref": "#/definitions/conditionImmunityArrayPlayer"
+									}
+								},
+								"additionalProperties": false,
+								"required": ["from"]
+							}
+						}
+					}
+				]
+			}
+		},
 
 		"genericFluffArrayItemData": {
 			"type": "object",
@@ -867,11 +1227,9 @@
 					]
 				},
 				"entries": {
-					"entries": {
-						"type": "array",
-						"items": {
-							"$ref": "entry.json"
-						}
+					"type": "array",
+					"items": {
+						"$ref": "entry.json"
 					}
 				}
 			},
@@ -1135,6 +1493,10 @@
 
 						"pantheon": {"description": "Used in deity data", "type": "string"},
 
+						"shortName": {"description": "Used in subclass data", "type": "string"},
+						"className": {"description": "Used in subclass data", "type": "string"},
+						"classSource": {"description": "Used in subclass data", "type": "string"},
+
 						"_mod": {
 							"type": "object",
 							"patternProperties": {
@@ -1212,16 +1574,13 @@
 		},
 
 		"_additionalSpellObject": {
+			"type": "object",
 			"patternProperties": {
 				"^\\d+$": {
 					"description": "Spells keyed by character/class level.",
 					"oneOf": [
 						{
-							"type": "array",
-							"items": {
-								"type": "string"
-							},
-							"uniqueItems": true
+							"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"
 						},
 						{
 							"$ref": "#/definitions/_additionalSpellLevelObject"
@@ -1232,11 +1591,20 @@
 					"description": "Spells keyed by spell level, access to which is gated behind the character advancing to a point where they could cast those spells with e.g. a Spellcasting class feature (Mark spells from ERLW races)",
 					"oneOf": [
 						{
-							"type": "array",
-							"items": {
-								"type": "string"
-							},
-							"uniqueItems": true
+							"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"
+						},
+						{
+							"$ref": "#/definitions/_additionalSpellLevelObject"
+						}
+					]
+				}
+			},
+			"properties": {
+				"_": {
+					"description": "Spells gained when gaining a particular feature, regardless of level or caster level",
+					"oneOf": [
+						{
+							"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"
 						},
 						{
 							"$ref": "#/definitions/_additionalSpellLevelObject"
@@ -1250,29 +1618,126 @@
 			"type": "object",
 			"properties": {
 				"rest": {
-					"$ref": "entry.json#/definitions/entrySpellcasting_frequency"
+					"description": "Spells which recharge on short or long rest",
+					"$ref": "#/definitions/_additionalSpellRechargeObject"
+				},
+				"daily": {
+					"description": "Spells which recharge on long rest",
+					"$ref": "#/definitions/_additionalSpellRechargeObject"
+				},
+				"will": {
+					"description": "At-will spells",
+					"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"
+				},
+				"ritual": {
+					"description": "Ritual-only spells",
+					"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"
+				},
+				"resource": {
+					"description": "Spells which cost a specific resource to use (such as Ki), but otherwise have no restrictions",
+					"$ref": "#/definitions/_additionalSpellRechargeObject"
+				},
+				"_": {
+					"description": "Spells which do not fall into the above categories (i.e. have no specific recharge, and are simply known)",
+					"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"
 				}
+			},
+			"additionalProperties": false
+		},
+
+		"_additionalSpellRechargeObject": {
+			"type": "object",
+			"properties": {
+				"9e": {"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"},
+				"8e": {"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"},
+				"7e": {"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"},
+				"6e": {"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"},
+				"5e": {"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"},
+				"4e": {"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"},
+				"3e": {"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"},
+				"2e": {"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"},
+				"1e": {"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"},
+
+				"9": {"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"},
+				"8": {"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"},
+				"7": {"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"},
+				"6": {"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"},
+				"5": {"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"},
+				"4": {"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"},
+				"3": {"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"},
+				"2": {"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"},
+				"1": {"$ref": "#/definitions/_additionalSpellArrayOfStringOrChoiceObject"}
+			},
+			"additionalProperties": false
+		},
+
+		"_additionalSpellArrayOfStringOrChoiceObject": {
+			"type": "array",
+			"items": {
+				"oneOf": [
+					{"type": "string"},
+
+					{
+						"type": "object",
+						"properties": {
+							"choose": {"type": "string"},
+							"count": {"type": "integer"}
+						},
+						"required": ["choose"],
+						"additionalProperties": false
+					}
+				]
 			}
 		},
 
 		"additionalSpellsArray": {
-			"description": "A collection of additional spells which this subclass grants.",
+			"description": "A collection of additional spells which a feature grants.",
 			"type": "array",
 			"items": {
 				"type": "object",
 				"properties": {
+					"name": {
+						"description": "Optional display name for the group",
+						"type": "string"
+					},
 					"ability": {
-						"description": "Optionally specify the ability score used for e.g. racial spellcasting.",
-						"type": "string",
-						"enum": ["str", "dex", "con", "int", "wis", "cha"]
+						"description": "Optionally specify the ability score used for e.g. racial spellcasting",
+						"oneOf": [
+							{
+								"type": "object",
+								"properties": {
+									"choose": {
+										"type": "array",
+										"items":{
+											"type": "string",
+											"enum": ["str", "dex", "con", "int", "wis", "cha"]
+										}
+									}
+								},
+								"required": ["choose"],
+								"additionalProperties": false
+							},
+							{
+								"description": "\"inherit\" is used for special cases, where the ability score matches a choice the player made when taking the feature",
+								"type": "string",
+								"enum": ["str", "dex", "con", "int", "wis", "cha", "inherit"]
+							}
+						]
+					},
+					"resourceName": {
+						"description": "Optional resource name for resource-cast spells in this group",
+						"type": "string"
 					},
 					"innate": {
+						"description": "Spells which can be innately cast, without expending normal spell resources",
 						"$ref": "#/definitions/_additionalSpellObject"
 					},
 					"prepared": {
+						"description": "Spells which are always prepared",
 						"$ref": "#/definitions/_additionalSpellObject"
 					},
 					"expanded": {
+						"description": "Expansions to a class' default spell list, from which spells can be chosen (e.g. Warlock Patron spells)",
 						"$ref": "#/definitions/_additionalSpellObject"
 					}
 				},
@@ -1329,6 +1794,8 @@
 												"weaponMartialMelee",
 												"instrumentMusical",
 												"armorLight",
+												"armorMedium",
+												"armorHeavy",
 												"weaponMelee",
 												"weaponRanged",
 												"focusSpellcasting",
@@ -1379,6 +1846,38 @@
 							]
 						}
 					}
+				}
+			}
+		},
+
+		"reqAttuneTags": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"background":{"type": "string"},
+					"race": {"type": "string"},
+					"creatureType":{"$ref": "util.json#/definitions/creatureType"},
+					"size": {"type": "string"},
+					"class":{"type": "string"},
+
+					"languageProficiency": {"$ref": "#/definitions/languageNameLower"},
+					"skillProficiency": {"$ref": "#/definitions/skillNameLower"},
+
+					"alignment": {
+						"type": "array",
+						"items": {"$ref": "util.json#/definitions/alignment"}
+					},
+
+					"str": {"type": "integer"},
+					"dex": {"type": "integer"},
+					"con": {"type": "integer"},
+					"int": {"type": "integer"},
+					"wis": {"type": "integer"},
+					"cha": {"type": "integer"},
+
+					"spellcasting":{"type": "boolean"},
+					"psionics": {"type": "boolean"}
 				}
 			}
 		}

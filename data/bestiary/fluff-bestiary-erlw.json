@@ -1,4 +1,9 @@
 {
+	"_meta": {
+		"internalCopies": [
+			"monsterFluff"
+		]
+	},
 	"monsterFluff": [
 		{
 			"name": "Belashyrra",
@@ -569,19 +574,6 @@
 							]
 						}
 					]
-				}
-			]
-		},
-		{
-			"name": "Homunculus Servant",
-			"source": "ERLW",
-			"images": [
-				{
-					"type": "image",
-					"href": {
-						"type": "internal",
-						"path": "bestiary/ERLW/Homunculus Servant.jpg"
-					}
 				}
 			]
 		},
@@ -1252,19 +1244,6 @@
 			]
 		},
 		{
-			"name": "Steel Defender",
-			"source": "ERLW",
-			"images": [
-				{
-					"type": "image",
-					"href": {
-						"type": "internal",
-						"path": "bestiary/ERLW/Steel Defender.png"
-					}
-				}
-			]
-		},
-		{
 			"name": "Sul Khatesh",
 			"source": "ERLW",
 			"_copy": {
@@ -1842,10 +1821,5 @@
 				}
 			]
 		}
-	],
-	"_meta": {
-		"internalCopies": [
-			"monsterFluff"
-		]
-	}
+	]
 }

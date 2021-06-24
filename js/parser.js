@@ -7,14 +7,14 @@ Parser._parse_aToB = function (abMap, a, fallback) {
 	return fallback !== undefined ? fallback : a;
 };
 
-Parser._parse_bToA = function (abMap, b) {
+Parser._parse_bToA = function (abMap, b, fallback) {
 	if (b === undefined || b === null) throw new TypeError("undefined or null object passed to parser");
 	if (typeof b === "string") b = b.trim();
 	for (const v in abMap) {
 		if (!abMap.hasOwnProperty(v)) continue;
 		if (abMap[v] === b) return v;
 	}
-	return b;
+	return fallback !== undefined ? fallback : b;
 };
 
 Parser.attrChooseToFull = function (attList) {
@@ -109,13 +109,67 @@ Parser.textToNumber = function (str) {
 };
 
 Parser.numberToVulgar = function (number) {
-	const spl = `${number}`.split(".");
+	const isNeg = number < 0;
+	const spl = `${number}`.replace(/^-/, "").split(".");
 	if (spl.length === 1) return number;
-	if (spl[1] === "5") return `${spl[0]}½`;
-	if (spl[1] === "25") return `${spl[0]}¼`;
-	if (spl[1] === "75") return `${spl[0]}¾`;
+
+	let preDot = spl[0] === "0" ? "" : spl[0];
+	if (isNeg) preDot = `-${preDot}`;
+
+	switch (spl[1]) {
+		case "125": return `${preDot}⅛`;
+		case "25": return `${preDot}¼`;
+		case "375": return `${preDot}⅜`;
+		case "5": return `${preDot}½`;
+		case "625": return `${preDot}⅝`;
+		case "75": return `${preDot}¾`;
+		case "875": return `${preDot}⅞`;
+
+		default: {
+			// Handle recursive
+			const asNum = Number(`0.${spl[1]}`);
+
+			if (asNum.toFixed(2) === (1 / 3).toFixed(2)) return `${preDot}⅓`;
+			if (asNum.toFixed(2) === (2 / 3).toFixed(2)) return `${preDot}⅔`;
+
+			if (asNum.toFixed(2) === (1 / 6).toFixed(2)) return `${preDot}⅙`;
+			if (asNum.toFixed(2) === (5 / 6).toFixed(2)) return `${preDot}⅚`;
+		}
+	}
+
 	return Parser.numberToFractional(number);
 };
+
+Parser.vulgarToNumber = function (str) {
+	const [, leading = "0", vulgar = ""] = /^(\d+)?([⅛¼⅜½⅝¾⅞⅓⅔⅙⅚])?$/.exec(str) || [];
+	let out = Number(leading);
+	switch (vulgar) {
+		case "⅛": out += 0.125; break;
+		case "¼": out += 0.25; break;
+		case "⅜": out += 0.375; break;
+		case "½": out += 0.5; break;
+		case "⅝": out += 0.625; break;
+		case "¾": out += 0.75; break;
+		case "⅞": out += 0.875; break;
+		case "⅓": out += 1 / 3; break;
+		case "⅔": out += 2 / 3; break;
+		case "⅙": out += 1 / 6; break;
+		case "⅚": out += 5 / 6; break;
+		case "": break;
+		default: throw new Error(`Unhandled vulgar part "${vulgar}"`);
+	}
+	return out;
+};
+
+Parser.numberToSuperscript = function (number) {
+	return `${number}`.split("").map(c => isNaN(c) ? c : Parser._NUMBERS_SUPERSCRIPT[Number(c)]).join("");
+};
+Parser._NUMBERS_SUPERSCRIPT = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+
+Parser.numberToSubscript = function (number) {
+	return `${number}`.split("").map(c => isNaN(c) ? c : Parser._NUMBERS_SUBSCRIPT[Number(c)]).join("");
+};
+Parser._NUMBERS_SUBSCRIPT = "₀₁₂₃₄₅₆₇₈₉";
 
 Parser._greatestCommonDivisor = function (a, b) {
 	if (b < Number.EPSILON) return a;
@@ -188,7 +242,7 @@ Parser.getSpeedString = (it) => {
 			joiner = "; ";
 			stack.push(`${it.speed.choose.from.sort().joinConjunct(", ", " or ")} ${it.speed.choose.amount} ft.${it.speed.choose.note ? ` ${it.speed.choose.note}` : ""}`);
 		}
-		return stack.join(joiner);
+		return stack.join(joiner) + (it.speed.note ? ` ${it.speed.note}` : "");
 	} else {
 		return it.speed + (it.speed === "Varies" ? "" : " ft. ");
 	}
@@ -246,12 +300,18 @@ Parser.isValidCr = function (cr) {
 };
 
 Parser.crToNumber = function (cr) {
-	if (cr === "Unknown" || cr === "\u2014" || cr == null) return 100;
+	if (cr === "Unknown" || cr === "\u2014" || cr == null) return VeCt.CR_UNKNOWN;
 	if (cr.cr) return Parser.crToNumber(cr.cr);
+
 	const parts = cr.trim().split("/");
-	if (parts.length === 1) return Number(parts[0]);
-	else if (parts.length === 2) return Number(parts[0]) / Number(parts[1]);
-	else return 0;
+
+	if (parts.length === 1) {
+		if (isNaN(parts[0])) return VeCt.CR_CUSTOM;
+		return Number(parts[0]);
+	} else if (parts.length === 2) {
+		if (isNaN(parts[0]) || isNaN(Number(parts[1]))) return VeCt.CR_CUSTOM;
+		return Number(parts[0]) / Number(parts[1]);
+	} else return 0;
 };
 
 Parser.numberToCr = function (number, safe) {
@@ -534,7 +594,7 @@ Parser.itemValueToFull = function (item, opts = {isShortForm: false, isSmallUnit
 	return Parser._moneyToFull(item, "value", "valueMult", opts);
 };
 
-Parser.itemValueToFullMultiCurrency = function (item, opts = {isShortForm: false, isSmallUnits: false}) {
+Parser.itemValueToFullMultiCurrency = function (item, opts = {isShortForm: false, isSmallUnits: false, multiplier: 1}) {
 	return Parser._moneyToFullMultiCurrency(item, "value", "valueMult", opts);
 };
 
@@ -558,11 +618,11 @@ Parser._moneyToFull = function (it, prop, propMult, opts = {isShortForm: false, 
 	return "";
 };
 
-Parser._moneyToFullMultiCurrency = function (it, prop, propMult, isShortForm) {
+Parser._moneyToFullMultiCurrency = function (it, prop, propMult, {isShortForm, multiplier} = {}) {
 	if (it[prop]) {
 		const simplified = CurrencyUtil.doSimplifyCoins(
 			{
-				cp: it[prop],
+				cp: it[prop] * (multiplier ?? 1),
 			},
 			{
 				currencyConversionId: it.currencyConversion,
@@ -783,10 +843,16 @@ Parser.spSchoolAbvToShort = function (school) {
 };
 
 Parser.spSchoolAbvToStyle = function (school) { // For homebrew
+	const stylePart = Parser.spSchoolAbvToStylePart(school);
+	if (!stylePart) return stylePart;
+	return `style="${stylePart}"`;
+};
+
+Parser.spSchoolAbvToStylePart = function (school) { // For homebrew
 	const rawColor = MiscUtil.get(BrewUtil, "homebrewMeta", "spellSchools", school, "color");
 	if (!rawColor || !rawColor.trim()) return "";
 	const validColor = BrewUtil.getValidColor(rawColor);
-	if (validColor.length) return `style="color: #${validColor}"`;
+	if (validColor.length) return `color: #${validColor};`;
 	return "";
 };
 
@@ -813,6 +879,12 @@ Parser.getArticle = function (str) {
 
 Parser.spLevelToFullLevelText = function (level, dash) {
 	return `${Parser.spLevelToFull(level)}${(level === 0 ? "s" : `${dash ? "-" : " "}level`)}`;
+};
+
+Parser.spLevelToSpellPoints = function (lvl) {
+	lvl = Number(lvl);
+	if (isNaN(lvl) || lvl === 0) return 0;
+	return Math.ceil(1.34 * lvl);
 };
 
 Parser.spMetaToArr = function (meta) {
@@ -850,7 +922,7 @@ Parser.spTimeListToFull = function (times, isStripTags) {
 };
 
 Parser.getTimeToFull = function (time) {
-	return `${time.number} ${time.unit === "bonus" ? "bonus action" : time.unit}${time.number > 1 ? "s" : ""}`;
+	return `${time.number ? `${time.number} ` : ""}${time.unit === "bonus" ? "bonus action" : time.unit}${time.number > 1 ? "s" : ""}`;
 };
 
 RNG_SPECIAL = "special";
@@ -927,7 +999,7 @@ Parser.spRangeTypeToIcon = function (range) {
 
 Parser.spRangeToShortHtml = function (range) {
 	switch (range.type) {
-		case RNG_SPECIAL: return `<span class="fas ${Parser.spRangeTypeToIcon(range.type)} help--subtle" title="Special"></span>`;
+		case RNG_SPECIAL: return `<span class="fas ${Parser.spRangeTypeToIcon(range.type)} help-subtle" title="Special"></span>`;
 		case RNG_POINT: return Parser.spRangeToShortHtml._renderPoint(range);
 		case RNG_LINE:
 		case RNG_CUBE:
@@ -947,7 +1019,7 @@ Parser.spRangeToShortHtml._renderPoint = function (range) {
 		case RNG_UNLIMITED:
 		case RNG_UNLIMITED_SAME_PLANE:
 		case RNG_SPECIAL:
-		case RNG_TOUCH: return `<span class="fas ${Parser.spRangeTypeToIcon(dist.type)} help--subtle" title="${Parser.spRangeTypeToFull(dist.type)}"></span>`;
+		case RNG_TOUCH: return `<span class="fas ${Parser.spRangeTypeToIcon(dist.type)} help-subtle" title="${Parser.spRangeTypeToFull(dist.type)}"></span>`;
 		case UNT_FEET:
 		case UNT_MILES:
 		default:
@@ -956,10 +1028,10 @@ Parser.spRangeToShortHtml._renderPoint = function (range) {
 };
 Parser.spRangeToShortHtml._renderArea = function (range) {
 	const size = range.distance;
-	return `<span class="fas ${Parser.spRangeTypeToIcon(RNG_SELF)} help--subtle" title="Self"></span> ${size.amount}<span class="ve-small">-${Parser.getSingletonUnit(size.type, true)}</span> ${Parser.spRangeToShortHtml._getAreaStyleString(range)}`;
+	return `<span class="fas ${Parser.spRangeTypeToIcon(RNG_SELF)} help-subtle" title="Self"></span> ${size.amount}<span class="ve-small">-${Parser.getSingletonUnit(size.type, true)}</span> ${Parser.spRangeToShortHtml._getAreaStyleString(range)}`;
 };
 Parser.spRangeToShortHtml._getAreaStyleString = function (range) {
-	return `<span class="fas ${Parser.spRangeTypeToIcon(range.type)} help--subtle" title="${Parser.spRangeTypeToFull(range.type)}"></span>`
+	return `<span class="fas ${Parser.spRangeTypeToIcon(range.type)} help-subtle" title="${Parser.spRangeTypeToFull(range.type)}"></span>`
 };
 
 Parser.spRangeToFull = function (range) {
@@ -1190,6 +1262,7 @@ Parser.SP_MISC_TAG_TO_FULL = {
 	SMN: "Summons Creature",
 	MAC: "Modifies AC",
 	TP: "Teleportation",
+	FMV: "Forced Movement",
 };
 Parser.spMiscTagToFull = function (type) {
 	return Parser._parse_aToB(Parser.SP_MISC_TAG_TO_FULL, type);
@@ -1234,6 +1307,7 @@ Parser.monTypeToFullObj = function (type) {
 	if (type.swarmSize) {
 		out.tags.push("swarm");
 		out.asText = `swarm of ${Parser.sizeAbvToFull(type.swarmSize).toLowerCase()} ${Parser.monTypeToPlural(type.type)}`;
+		out.swarmSize = type.swarmSize;
 	} else {
 		out.asText = `${type.type}`;
 	}
@@ -1253,6 +1327,8 @@ Parser.monCrToFull = function (cr, {xp = null, isMythic = false} = {}) {
 	if (cr == null) return "";
 
 	if (typeof cr === "string") {
+		if (Parser.crToNumber(cr) >= VeCt.CR_CUSTOM) return cr;
+
 		xp = xp != null ? Parser._addCommas(xp) : Parser.crToXp(cr);
 		return `${cr} (${xp} XP${isMythic ? `, or ${Parser.crToXp(cr, {isDouble: true})} XP as a mythic encounter` : ""})`;
 	} else {
@@ -1263,8 +1339,9 @@ Parser.monCrToFull = function (cr, {xp = null, isMythic = false} = {}) {
 	}
 };
 
-Parser.monImmResToFull = function (toParse) {
-	const outerLen = toParse.length;
+Parser.getFullImmRes = function (toParse) {
+	if (!toParse.length) return "";
+
 	let maxDepth = 0;
 
 	function toString (it, depth = 0) {
@@ -1274,35 +1351,42 @@ Parser.monImmResToFull = function (toParse) {
 		} else if (it.special) {
 			return it.special;
 		} else {
-			let stack = it.preNote ? `${it.preNote} ` : "";
+			const stack = [];
+
+			if (it.preNote) stack.push(it.preNote);
+
 			const prop = it.immune ? "immune" : it.resist ? "resist" : it.vulnerable ? "vulnerable" : null;
 			if (prop) {
 				const toJoin = it[prop].map(nxt => toString(nxt, depth + 1));
-				stack += depth ? toJoin.join(maxDepth ? "; " : ", ") : toJoin.joinConjunct(", ", " and ");
+				stack.push(depth ? toJoin.join(maxDepth ? "; " : ", ") : toJoin.joinConjunct(", ", " and "));
 			}
-			if (it.note) stack += ` ${it.note}`;
-			return stack;
+
+			if (it.note) stack.push(it.note);
+
+			return stack.join(" ");
 		}
 	}
 
-	function serialJoin (arr) {
-		if (arr.length <= 1) return arr.join("");
+	const arr = toParse.map(it => toString(it));
 
-		let out = "";
-		for (let i = 0; i < arr.length - 1; ++i) {
-			const it = arr[i];
-			const nxt = arr[i + 1];
-			out += it;
-			out += (it.includes(",") || nxt.includes(",")) ? "; " : ", ";
-		}
-		out += arr.last();
-		return out;
+	if (arr.length <= 1) return arr.join("");
+
+	let out = "";
+	for (let i = 0; i < arr.length - 1; ++i) {
+		const it = arr[i];
+		const nxt = arr[i + 1];
+
+		const orig = toParse[i];
+		const origNxt = toParse[i + 1];
+
+		out += it;
+		out += (it.includes(",") || nxt.includes(",") || (orig && orig.cond) || (origNxt && origNxt.cond)) ? "; " : ", ";
 	}
-
-	return serialJoin(toParse.map(it => toString(it)));
+	out += arr.last();
+	return out;
 };
 
-Parser.monCondImmToFull = function (condImm, isPlainText) {
+Parser.getFullCondImm = function (condImm, isPlainText) {
 	function render (condition) {
 		return isPlainText ? condition : Renderer.get().render(`{@condition ${condition}}`);
 	}
@@ -1466,8 +1550,10 @@ Parser.optFeatureTypeToFull = function (type) {
 };
 
 Parser.CHAR_OPTIONAL_FEATURE_TYPE_TO_FULL = {
-	SG: "Supernatural Gift",
-	OF: "Optional Feature",
+	"SG": "Supernatural Gift",
+	"OF": "Optional Feature",
+	"DG": "Dark Gift",
+	"RF:B": "Replacement Feature: Background",
 };
 
 Parser.charCreationOptionTypeToFull = function (type) {
@@ -1605,6 +1691,7 @@ Parser.CAT_ID_BOOK = 44;
 Parser.CAT_ID_PAGE = 45;
 Parser.CAT_ID_LEGENDARY_GROUP = 46;
 Parser.CAT_ID_CHAR_CREATION_OPTIONS = 47;
+Parser.CAT_ID_RECIPES = 48;
 
 Parser.CAT_ID_TO_FULL = {};
 Parser.CAT_ID_TO_FULL[Parser.CAT_ID_CREATURE] = "Bestiary";
@@ -1655,6 +1742,7 @@ Parser.CAT_ID_TO_FULL[Parser.CAT_ID_BOOK] = "Book";
 Parser.CAT_ID_TO_FULL[Parser.CAT_ID_PAGE] = "Page";
 Parser.CAT_ID_TO_FULL[Parser.CAT_ID_LEGENDARY_GROUP] = "Legendary Group";
 Parser.CAT_ID_TO_FULL[Parser.CAT_ID_CHAR_CREATION_OPTIONS] = "Character Creation Option";
+Parser.CAT_ID_TO_FULL[Parser.CAT_ID_RECIPES] = "Recipe";
 
 Parser.pageCategoryToFull = function (catId) {
 	return Parser._parse_aToB(Parser.CAT_ID_TO_FULL, catId);
@@ -1709,6 +1797,7 @@ Parser.CAT_ID_TO_PROP[Parser.CAT_ID_BOOK] = "book";
 Parser.CAT_ID_TO_PROP[Parser.CAT_ID_PAGE] = null;
 Parser.CAT_ID_TO_PROP[Parser.CAT_ID_LEGENDARY_GROUP] = null;
 Parser.CAT_ID_TO_PROP[Parser.CAT_ID_CHAR_CREATION_OPTIONS] = "charoption";
+Parser.CAT_ID_TO_PROP[Parser.CAT_ID_RECIPES] = "recipe";
 
 Parser.pageCategoryToProp = function (catId) {
 	return Parser._parse_aToB(Parser.CAT_ID_TO_PROP, catId);
@@ -1732,7 +1821,7 @@ Parser.spClassesToCurrentAndLegacy = function (fromClassList) {
  * @param sp a spell
  * @param subclassLookup Data loaded from `generated/gendata-subclass-lookup.json`. Of the form: `{PHB: {Barbarian: {PHB: {Berserker: "Path of the Berserker"}}}}`
  * @returns {*[]} A two-element array. First item is a string of all the current subclasses, second item a string of
- * all the legacy/superceded subclasses
+ * all the legacy/superseded subclasses
  */
 Parser.spSubclassesToCurrentAndLegacyFull = function (sp, subclassLookup) {
 	const fromSubclass = Renderer.spell.getCombinedClasses(sp, "fromSubclass");
@@ -1743,11 +1832,19 @@ Parser.spSubclassesToCurrentAndLegacyFull = function (sp, subclassLookup) {
 	const toCheck = [];
 	fromSubclass
 		.filter(c => {
-			const excludeClass = ExcludeUtil.isExcluded(c.class.name, "class", c.class.source);
+			const excludeClass = ExcludeUtil.isExcluded(
+				UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_CLASSES]({name: c.class.name, source: c.class.source}),
+				"class",
+				c.class.source,
+			);
 			if (excludeClass) return false;
 
 			const fromLookup = MiscUtil.get(subclassLookup, c.class.source, c.class.name, c.subclass.source, c.subclass.name);
-			const excludeSubclass = ExcludeUtil.isExcluded((fromLookup || {}).name || c.subclass.name, "subclass", c.subclass.source);
+			const excludeSubclass = ExcludeUtil.isExcluded(
+				UrlUtil.URL_TO_HASH_BUILDER[UrlUtil.PG_CLASSES]({name: (fromLookup || {}).name || c.subclass.name, source: c.subclass.source}),
+				"subclass",
+				c.subclass.source,
+			);
 			return !excludeSubclass;
 		})
 		.sort((a, b) => {
@@ -1830,6 +1927,7 @@ Parser.TRAP_HAZARD_TYPE_TO_FULL = {
 	ENV: "Environmental Hazard",
 	WLD: "Wilderness Hazard",
 	GEN: "Generic",
+	EST: "Eldritch Storm",
 };
 
 Parser.tierToFullLevel = function (tier) {
@@ -1870,7 +1968,7 @@ Parser.bookOrdinalToAbv = (ordinal, preNoSuff) => {
 		case "part": return `${preNoSuff ? " " : ""}Part ${ordinal.identifier}${preNoSuff ? "" : " \u2014 "}`;
 		case "chapter": return `${preNoSuff ? " " : ""}Ch. ${ordinal.identifier}${preNoSuff ? "" : ": "}`;
 		case "episode": return `${preNoSuff ? " " : ""}Ep. ${ordinal.identifier}${preNoSuff ? "" : ": "}`;
-		case "appendix": return `${preNoSuff ? " " : ""}App. ${ordinal.identifier}${preNoSuff ? "" : ": "}`;
+		case "appendix": return `${preNoSuff ? " " : ""}App.${ordinal.identifier != null ? ` ${ordinal.identifier}` : ""}${preNoSuff ? "" : ": "}`;
 		case "level": return `${preNoSuff ? " " : ""}Level ${ordinal.identifier}${preNoSuff ? "" : ": "}`;
 		default: throw new Error(`Unhandled ordinal type "${ordinal.type}"`);
 	}
@@ -1878,10 +1976,15 @@ Parser.bookOrdinalToAbv = (ordinal, preNoSuff) => {
 
 Parser.nameToTokenName = function (name) {
 	return name
-		.normalize("NFD") // replace diactrics with their individual graphemes
-		.replace(/[\u0300-\u036f]/g, "") // remove accent graphemes
-		.replace(/Æ/g, "AE").replace(/æ/g, "ae")
+		.toAscii()
 		.replace(/"/g, "");
+};
+
+Parser.bytesToHumanReadable = function (bytes, {fixedDigits = 2} = {}) {
+	if (bytes == null) return "";
+	if (!bytes) return "0 B";
+	const e = Math.floor(Math.log(bytes) / Math.log(1024));
+	return `${(bytes / Math.pow(1024, e)).toFixed(fixedDigits)} ${`\u200bKMGTP`.charAt(e)}B`;
 };
 
 SKL_ABV_ABJ = "A";
@@ -1922,6 +2025,15 @@ Parser.SP_TIME_TO_FULL = {
 };
 Parser.spTimeUnitToFull = function (timeUnit) {
 	return Parser._parse_aToB(Parser.SP_TIME_TO_FULL, timeUnit);
+};
+
+Parser.SP_TIME_TO_SHORT = {
+	[Parser.SP_TM_ROUND]: "Rnd.",
+	[Parser.SP_TM_MINS]: "Min.",
+	[Parser.SP_TM_HRS]: "Hr.",
+}
+Parser.spTimeUnitToShort = function (timeUnit) {
+	return Parser._parse_aToB(Parser.SP_TIME_TO_SHORT, timeUnit);
 };
 
 Parser.SP_TIME_TO_ABV = {
@@ -2122,6 +2234,7 @@ Parser.VEHICLE_TYPE_TO_FULL = {
 	"SHIP": "Ship",
 	"INFWAR": "Infernal War Machine",
 	"CREATURE": "Creature",
+	"OBJECT": "Object",
 	"SHP:H": "Ship Upgrade, Hull",
 	"SHP:M": "Ship Upgrade, Movement",
 	"SHP:W": "Ship Upgrade, Weapon",
@@ -2135,6 +2248,8 @@ Parser.VEHICLE_TYPE_TO_FULL = {
 Parser.vehicleTypeToFull = function (vehicleType) {
 	return Parser._parse_aToB(Parser.VEHICLE_TYPE_TO_FULL, vehicleType);
 };
+
+SRC_5ETOOLS_TMP = "SRC_5ETOOLS_TMP"; // Temp source, used as a placeholder value
 
 SRC_CoS = "CoS";
 SRC_DMG = "DMG";
@@ -2200,7 +2315,12 @@ SRC_EGW_US = "US";
 SRC_MOT = "MOT";
 SRC_IDRotF = "IDRotF";
 SRC_TCE = "TCE";
+SRC_VRGR = "VRGR";
+SRC_HoL = "HoL";
 SRC_SCREEN = "Screen";
+SRC_SCREEN_WILDERNESS_KIT = "ScreenWildernessKit";
+SRC_HEROES_FEAST = "HF";
+SRC_CM = "CM";
 
 SRC_AL_PREFIX = "AL";
 
@@ -2284,6 +2404,10 @@ SRC_UA2020SMT = `${SRC_UA_PREFIX}2020SpellsAndMagicTattoos`;
 SRC_UA2020POR = `${SRC_UA_PREFIX}2020PsionicOptionsRevisited`;
 SRC_UA2020SCR = `${SRC_UA_PREFIX}2020SubclassesRevisited`;
 SRC_UA2020F = `${SRC_UA_PREFIX}2020Feats`;
+SRC_UA2021GL = `${SRC_UA_PREFIX}2021GothicLineages`;
+SRC_UA2021FF = `${SRC_UA_PREFIX}2021FolkOfTheFeywild`;
+SRC_UA2021DO = `${SRC_UA_PREFIX}2021DraconicOptions`;
+SRC_UA2021MoS = `${SRC_UA_PREFIX}2021MagesOfStrixhaven`;
 
 SRC_3PP_SUFFIX = " 3pp";
 
@@ -2360,7 +2484,12 @@ Parser.SOURCE_JSON_TO_FULL[SRC_EGW_US] = "Unwelcome Spirits";
 Parser.SOURCE_JSON_TO_FULL[SRC_MOT] = "Mythic Odysseys of Theros";
 Parser.SOURCE_JSON_TO_FULL[SRC_IDRotF] = "Icewind Dale: Rime of the Frostmaiden";
 Parser.SOURCE_JSON_TO_FULL[SRC_TCE] = "Tasha's Cauldron of Everything";
+Parser.SOURCE_JSON_TO_FULL[SRC_VRGR] = "Van Richten's Guide to Ravenloft";
+Parser.SOURCE_JSON_TO_FULL[SRC_HoL] = "The House of Lament";
 Parser.SOURCE_JSON_TO_FULL[SRC_SCREEN] = "Dungeon Master's Screen";
+Parser.SOURCE_JSON_TO_FULL[SRC_SCREEN_WILDERNESS_KIT] = "Dungeon Master's Screen: Wilderness Kit";
+Parser.SOURCE_JSON_TO_FULL[SRC_HEROES_FEAST] = "Heroes' Feast";
+Parser.SOURCE_JSON_TO_FULL[SRC_CM] = "Candlekeep Mysteries";
 Parser.SOURCE_JSON_TO_FULL[SRC_ALCoS] = `${AL_PREFIX}Curse of Strahd`;
 Parser.SOURCE_JSON_TO_FULL[SRC_ALEE] = `${AL_PREFIX}Elemental Evil`;
 Parser.SOURCE_JSON_TO_FULL[SRC_ALRoD] = `${AL_PREFIX}Rage of Demons`;
@@ -2435,6 +2564,10 @@ Parser.SOURCE_JSON_TO_FULL[SRC_UA2020SMT] = `${UA_PREFIX}2020 Spells and Magic T
 Parser.SOURCE_JSON_TO_FULL[SRC_UA2020POR] = `${UA_PREFIX}2020 Psionic Options Revisited`;
 Parser.SOURCE_JSON_TO_FULL[SRC_UA2020SCR] = `${UA_PREFIX}2020 Subclasses Revisited`;
 Parser.SOURCE_JSON_TO_FULL[SRC_UA2020F] = `${UA_PREFIX}2020 Feats`;
+Parser.SOURCE_JSON_TO_FULL[SRC_UA2021GL] = `${UA_PREFIX}2021 Gothic Lineages`;
+Parser.SOURCE_JSON_TO_FULL[SRC_UA2021FF] = `${UA_PREFIX}2021 Folk of the Feywild`;
+Parser.SOURCE_JSON_TO_FULL[SRC_UA2021DO] = `${UA_PREFIX}2021 Draconic Options`;
+Parser.SOURCE_JSON_TO_FULL[SRC_UA2021MoS] = `${UA_PREFIX}2021 Mages of Strixhaven`;
 
 Parser.SOURCE_JSON_TO_ABV = {};
 Parser.SOURCE_JSON_TO_ABV[SRC_CoS] = "CoS";
@@ -2501,7 +2634,12 @@ Parser.SOURCE_JSON_TO_ABV[SRC_EGW_US] = "US";
 Parser.SOURCE_JSON_TO_ABV[SRC_MOT] = "MOT";
 Parser.SOURCE_JSON_TO_ABV[SRC_IDRotF] = "IDRotF";
 Parser.SOURCE_JSON_TO_ABV[SRC_TCE] = "TCE";
+Parser.SOURCE_JSON_TO_ABV[SRC_VRGR] = "VRGR";
+Parser.SOURCE_JSON_TO_ABV[SRC_HoL] = "HoL";
 Parser.SOURCE_JSON_TO_ABV[SRC_SCREEN] = "Screen";
+Parser.SOURCE_JSON_TO_ABV[SRC_SCREEN_WILDERNESS_KIT] = "Wild";
+Parser.SOURCE_JSON_TO_ABV[SRC_HEROES_FEAST] = "HF";
+Parser.SOURCE_JSON_TO_ABV[SRC_CM] = "CM";
 Parser.SOURCE_JSON_TO_ABV[SRC_ALCoS] = "ALCoS";
 Parser.SOURCE_JSON_TO_ABV[SRC_ALEE] = "ALEE";
 Parser.SOURCE_JSON_TO_ABV[SRC_ALRoD] = "ALRoD";
@@ -2567,15 +2705,19 @@ Parser.SOURCE_JSON_TO_ABV[SRC_UACFV] = "UACFV";
 Parser.SOURCE_JSON_TO_ABV[SRC_UAFRW] = "UAFRW";
 Parser.SOURCE_JSON_TO_ABV[SRC_UAPCRM] = "UAPCRM";
 Parser.SOURCE_JSON_TO_ABV[SRC_UAR] = "UAR";
-Parser.SOURCE_JSON_TO_ABV[SRC_UA2020SC1] = "UA2S1";
-Parser.SOURCE_JSON_TO_ABV[SRC_UA2020SC2] = "UA2S2";
-Parser.SOURCE_JSON_TO_ABV[SRC_UA2020SC3] = "UA2S3";
-Parser.SOURCE_JSON_TO_ABV[SRC_UA2020SC4] = "UA2S4";
-Parser.SOURCE_JSON_TO_ABV[SRC_UA2020SC5] = "UA2S5";
-Parser.SOURCE_JSON_TO_ABV[SRC_UA2020SMT] = "UA2SMT";
-Parser.SOURCE_JSON_TO_ABV[SRC_UA2020POR] = "UA2POR";
-Parser.SOURCE_JSON_TO_ABV[SRC_UA2020SCR] = "UA2SCR";
-Parser.SOURCE_JSON_TO_ABV[SRC_UA2020F] = "UA2F";
+Parser.SOURCE_JSON_TO_ABV[SRC_UA2020SC1] = "UA20S1";
+Parser.SOURCE_JSON_TO_ABV[SRC_UA2020SC2] = "UA20S2";
+Parser.SOURCE_JSON_TO_ABV[SRC_UA2020SC3] = "UA20S3";
+Parser.SOURCE_JSON_TO_ABV[SRC_UA2020SC4] = "UA20S4";
+Parser.SOURCE_JSON_TO_ABV[SRC_UA2020SC5] = "UA20S5";
+Parser.SOURCE_JSON_TO_ABV[SRC_UA2020SMT] = "UA20SMT";
+Parser.SOURCE_JSON_TO_ABV[SRC_UA2020POR] = "UA20POR";
+Parser.SOURCE_JSON_TO_ABV[SRC_UA2020SCR] = "UA20SCR";
+Parser.SOURCE_JSON_TO_ABV[SRC_UA2020F] = "UA20F";
+Parser.SOURCE_JSON_TO_ABV[SRC_UA2021GL] = "UA21GL";
+Parser.SOURCE_JSON_TO_ABV[SRC_UA2021FF] = "UA21FF";
+Parser.SOURCE_JSON_TO_ABV[SRC_UA2021DO] = "UA21DO";
+Parser.SOURCE_JSON_TO_ABV[SRC_UA2021MoS] = "UA21MoS";
 
 Parser.SOURCE_JSON_TO_DATE = {};
 Parser.SOURCE_JSON_TO_DATE[SRC_CoS] = "2016-03-15";
@@ -2640,7 +2782,12 @@ Parser.SOURCE_JSON_TO_DATE[SRC_EGW_US] = "2020-03-17";
 Parser.SOURCE_JSON_TO_DATE[SRC_MOT] = "2020-06-02";
 Parser.SOURCE_JSON_TO_DATE[SRC_IDRotF] = "2020-09-15";
 Parser.SOURCE_JSON_TO_DATE[SRC_TCE] = "2020-11-17";
+Parser.SOURCE_JSON_TO_DATE[SRC_VRGR] = "2021-05-18";
+Parser.SOURCE_JSON_TO_DATE[SRC_HoL] = "2021-05-18";
 Parser.SOURCE_JSON_TO_DATE[SRC_SCREEN] = "2015-01-20";
+Parser.SOURCE_JSON_TO_DATE[SRC_SCREEN_WILDERNESS_KIT] = "2020-11-17";
+Parser.SOURCE_JSON_TO_DATE[SRC_HEROES_FEAST] = "2020-10-27";
+Parser.SOURCE_JSON_TO_DATE[SRC_CM] = "2021-03-16";
 Parser.SOURCE_JSON_TO_DATE[SRC_ALCoS] = "2016-03-15";
 Parser.SOURCE_JSON_TO_DATE[SRC_ALEE] = "2015-04-07";
 Parser.SOURCE_JSON_TO_DATE[SRC_ALRoD] = "2015-09-15";
@@ -2691,7 +2838,7 @@ Parser.SOURCE_JSON_TO_DATE[SRC_UATSC] = "2018-01-08";
 Parser.SOURCE_JSON_TO_DATE[SRC_UAOD] = "2018-04-09";
 Parser.SOURCE_JSON_TO_DATE[SRC_UACAM] = "2018-05-14";
 Parser.SOURCE_JSON_TO_DATE[SRC_UAGSS] = "2018-06-11";
-Parser.SOURCE_JSON_TO_DATE[SRC_UARoE] = "5018-07-23";
+Parser.SOURCE_JSON_TO_DATE[SRC_UARoE] = "2018-07-23";
 Parser.SOURCE_JSON_TO_DATE[SRC_UARoR] = "2018-08-13";
 Parser.SOURCE_JSON_TO_DATE[SRC_UAWGE] = "2018-07-23";
 Parser.SOURCE_JSON_TO_DATE[SRC_UAOSS] = "2018-11-12";
@@ -2715,6 +2862,10 @@ Parser.SOURCE_JSON_TO_DATE[SRC_UA2020SMT] = "2020-03-26";
 Parser.SOURCE_JSON_TO_DATE[SRC_UA2020POR] = "2020-04-14";
 Parser.SOURCE_JSON_TO_DATE[SRC_UA2020SCR] = "2020-05-12";
 Parser.SOURCE_JSON_TO_DATE[SRC_UA2020F] = "2020-07-13";
+Parser.SOURCE_JSON_TO_DATE[SRC_UA2021GL] = "2020-01-26";
+Parser.SOURCE_JSON_TO_DATE[SRC_UA2021FF] = "2020-03-12";
+Parser.SOURCE_JSON_TO_DATE[SRC_UA2021DO] = "2021-04-14";
+Parser.SOURCE_JSON_TO_DATE[SRC_UA2021MoS] = "2021-06-08";
 
 Parser.SOURCES_ADVENTURES = new Set([
 	SRC_LMoP,
@@ -2756,6 +2907,8 @@ Parser.SOURCES_ADVENTURES = new Set([
 	SRC_EGW_FS,
 	SRC_EGW_US,
 	SRC_IDRotF,
+	SRC_CM,
+	SRC_HoL,
 
 	SRC_AWM,
 ]);
@@ -2785,6 +2938,7 @@ Parser.SOURCES_VANILLA = new Set([ // An opinionated set of source that could be
 	SRC_SADS,
 	SRC_TCE,
 	SRC_SCREEN,
+	SRC_SCREEN_WILDERNESS_KIT,
 ]);
 Parser.SOURCES_AVAILABLE_DOCS_BOOK = {};
 [
@@ -2802,6 +2956,7 @@ Parser.SOURCES_AVAILABLE_DOCS_BOOK = {};
 	SRC_EGW,
 	SRC_MOT,
 	SRC_TCE,
+	SRC_VRGR,
 ].forEach(src => {
 	Parser.SOURCES_AVAILABLE_DOCS_BOOK[src] = src;
 	Parser.SOURCES_AVAILABLE_DOCS_BOOK[src.toLowerCase()] = src;
@@ -2845,6 +3000,8 @@ Parser.SOURCES_AVAILABLE_DOCS_ADVENTURE = {};
 	SRC_EGW_FS,
 	SRC_EGW_US,
 	SRC_IDRotF,
+	SRC_CM,
+	SRC_HoL,
 ].forEach(src => {
 	Parser.SOURCES_AVAILABLE_DOCS_ADVENTURE[src] = src;
 	Parser.SOURCES_AVAILABLE_DOCS_ADVENTURE[src.toLowerCase()] = src;
@@ -2878,6 +3035,8 @@ Parser.TAG_TO_DEFAULT_SOURCE = {
 	"table": SRC_DMG,
 	"language": SRC_PHB,
 	"charoption": SRC_MOT,
+	"recipe": SRC_HEROES_FEAST,
+	"itemEntry": SRC_DMG,
 };
 Parser.getTagSource = function (tag, source) {
 	if (source && source.trim()) return source;

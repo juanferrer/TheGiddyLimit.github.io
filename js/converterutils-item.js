@@ -1,5 +1,10 @@
 "use strict";
 
+if (typeof module !== "undefined") {
+	const cv = require("./converterutils.js");
+	Object.assign(global, cv);
+}
+
 class ConverterUtilsItem {}
 ConverterUtilsItem.BASIC_WEAPONS = [
 	"club",
@@ -190,6 +195,7 @@ class BonusTag {
 			delete obj.bonusAc;
 			delete obj.bonusSavingThrow;
 			delete obj.bonusSpellAttack;
+			delete obj.bonusSpellSaveDc;
 		}
 
 		strEntries = strEntries.replace(/\+\s*(\d)([^.]+(?:bonus )?(?:to|on) [^.]*(?:attack|hit) and damage rolls)/ig, (...m) => {
@@ -212,14 +218,25 @@ class BonusTag {
 			return opts.isVariant ? `{=bonusAc}${m[2]}` : m[0];
 		});
 
+		// FIXME(Future) false positives:
+		//   - Black Dragon Scale Mail
 		strEntries = strEntries.replace(/\+\s*(\d)([^.]+(?:bonus )?(?:to|on) [^.]*saving throws)/g, (...m) => {
 			obj.bonusSavingThrow = `+${m[1]}`;
 			return opts.isVariant ? `{=bonusSavingThrow}${m[2]}` : m[0];
 		});
 
+		// FIXME(Future) false negatives:
+		//   - Robe of the Archmagi
 		strEntries = strEntries.replace(/\+\s*(\d)([^.]+(?:bonus )?(?:to|on) [^.]*spell attack rolls)/g, (...m) => {
 			obj.bonusSpellAttack = `+${m[1]}`;
 			return opts.isVariant ? `{=bonusSpellAttack}${m[2]}` : m[0];
+		});
+
+		// FIXME(Future) false negatives:
+		//   - Robe of the Archmagi
+		strEntries = strEntries.replace(/\+\s*(\d)([^.]+(?:bonus )?(?:to|on) [^.]*saving throw DCs)/g, (...m) => {
+			obj.bonusSpellSaveDc = `+${m[1]}`;
+			return opts.isVariant ? `{=bonusSpellSaveDc}${m[2]}` : m[0];
 		});
 
 		strEntries = strEntries.replace(BonusTag._RE_BASIC_WEAPONS, (...m) => {
@@ -288,6 +305,7 @@ class BasicTextClean {
 
 					if (/^\s*Proficiency with .*? allows you to add your proficiency bonus to the attack roll for any attack you make with it\.\s*$/i.test(it)) return false;
 					if (/^\s*A shield is made from wood or metal and is carried in one hand\. Wielding a shield increases your Armor Class by 2. You can benefit from only one shield at a time\.\s*$/i.test(it)) return false;
+					if (/^\s*This armor consists of a coat and leggings \(and perhaps a separate skirt\) of leather covered with overlapping pieces of metal, much like the scales of a fish\. The suit includes gauntlets\.\s*$/i.test(it)) return false;
 
 					return true;
 				})
@@ -363,6 +381,249 @@ class ItemSpellcastingFocusTag {
 }
 ItemSpellcastingFocusTag._RE_CLASS_NAMES = null;
 
+class DamageResistanceTag {
+	static tryRun (it, opts) {
+		DamageResistanceImmunityVulnerabilityTag.tryRun(
+			"resist",
+			/you (?:have|gain|are) (?:resistance|resistant) (?:to|against) [^?.!]+/ig,
+			it,
+			opts,
+		);
+	}
+}
+
+class DamageImmunityTag {
+	static tryRun (it, opts) {
+		DamageResistanceImmunityVulnerabilityTag.tryRun(
+			"immune",
+			/you (?:have|gain|are) (?:immune|immunity) (?:to|against) [^?.!]+/ig,
+			it,
+			opts,
+		);
+	}
+}
+
+class DamageVulnerabilityTag {
+	static tryRun (it, opts) {
+		DamageResistanceImmunityVulnerabilityTag.tryRun(
+			"vulnerable",
+			/you (?:have|gain|are) (?:vulnerable|vulnerability) (?:to|against) [^?.!]+/ig,
+			it,
+			opts,
+		);
+	}
+}
+
+class DamageResistanceImmunityVulnerabilityTag {
+	static _checkAndTag (prop, reOuter, obj, opts) {
+		if (prop === "resist" && obj.hasRefs) return; // Assume these are already tagged
+
+		const all = new Set();
+		const outer = [];
+		DamageResistanceImmunityVulnerabilityTag._WALKER.walk(
+			obj.entries,
+			{
+				string: (str) => {
+					str.replace(reOuter, (full, ..._) => {
+						outer.push(full);
+						full = full.split(/ except /gi)[0];
+						full.replace(ConverterConst.RE_DAMAGE_TYPE, (full, prefix, dmgType) => {
+							all.add(dmgType);
+						});
+					});
+				},
+			},
+		);
+		if (all.size) obj[prop] = [...all].sort(SortUtil.ascSortLower);
+		else delete obj[prop];
+
+		if (outer.length && !all.size) {
+			if (opts.cbMan) opts.cbMan(`Could not find damage types in string(s) ${outer.map(it => `"${it}"`).join(", ")}`);
+		}
+	}
+
+	static tryRun (prop, reOuter, it, opts) {
+		DamageResistanceImmunityVulnerabilityTag._WALKER = DamageResistanceImmunityVulnerabilityTag._WALKER || MiscUtil.getWalker({keyBlacklist: MiscUtil.GENERIC_WALKER_ENTRIES_KEY_BLACKLIST, isNoModification: true});
+
+		if (it.entries) this._checkAndTag(prop, reOuter, it, opts);
+		if (it.inherits && it.inherits.entries) this._checkAndTag(prop, reOuter, it.inherits, opts);
+	}
+}
+DamageResistanceImmunityVulnerabilityTag._WALKER = null;
+
+class ConditionImmunityTag {
+	static _checkAndTag (obj) {
+		const all = new Set();
+		ConditionImmunityTag._WALKER.walk(
+			obj.entries,
+			{
+				string: (str) => {
+					str.replace(/you (?:have|gain|are) (?:[^.!?]+ )?immun(?:e|ity) to disease/gi, (...m) => {
+						all.add("disease");
+					})
+
+					str.replace(/you (?:have|gain|are) (?:[^.!?]+ )?(?:immune) ([^.!?]+)/, (...m) => {
+						m[1].replace(/{@condition ([^}]+)}/gi, (...n) => {
+							all.add(n[1].toLowerCase());
+						});
+					});
+				},
+			},
+		);
+		if (all.size) obj.conditionImmune = [...all].sort(SortUtil.ascSortLower);
+		else delete obj.conditionImmune;
+	}
+
+	static tryRun (it, opts) {
+		ConditionImmunityTag._WALKER = ConditionImmunityTag._WALKER || MiscUtil.getWalker({keyBlacklist: MiscUtil.GENERIC_WALKER_ENTRIES_KEY_BLACKLIST, isNoModification: true});
+
+		if (it.entries) this._checkAndTag(it, opts);
+		if (it.inherits && it.inherits.entries) this._checkAndTag(it.inherits, opts);
+	}
+}
+ConditionImmunityTag._WALKER = null;
+
+class ReqAttuneTagTag {
+	static _checkAndTag (obj, opts, isAlt) {
+		const prop = isAlt ? "reqAttuneAlt" : "reqAttune";
+
+		if (typeof obj[prop] === "boolean" || obj[prop] === "optional") return;
+
+		let req = obj[prop].replace(/^by/i, "");
+
+		const tags = [];
+
+		// "by a creature with the Mark of Finding"
+		req = req.replace(/(?:a creature with the )?\bMark of ([A-Z][^ ]+)/g, (...m) => {
+			const races = ReqAttuneTagTag._EBERRON_MARK_RACES[`Mark of ${m[1]}`];
+			if (!races) return "";
+			races.forEach(race => tags.push({race: race.toLowerCase()}));
+			return "";
+		});
+
+		// "by a member of the Azorius guild"
+		req = req.replace(/(?:a member of the )?\b(Azorius|Boros|Dimir|Golgari|Gruul|Izzet|Orzhov|Rakdos|Selesnya|Simic)\b guild/g, (...m) => {
+			tags.push({background: ReqAttuneTagTag._RAVNICA_GUILD_BACKGROUNDS[m[1]].toLowerCase()});
+			return "";
+		});
+
+		// "by a creature with an intelligence score of 3 or higher"
+		req = req.replace(/(?:a creature with (?:an|a) )?\b(strength|dexterity|constitution|intelligence|wisdom|charisma)\b score of (\d+)(?: or higher)?/g, (...m) => {
+			const abil = m[1].slice(0, 3).toLowerCase();
+			tags.push({[abil]: Number(m[2])});
+		});
+
+		// "by a creature that can speak Infernal"
+		req = req.replace(/(?:a creature that can )?speak \b(Abyssal|Aquan|Auran|Celestial|Common|Deep Speech|Draconic|Druidic|Dwarvish|Elvish|Giant|Gnomish|Goblin|Halfling|Ignan|Infernal|Orc|Primordial|Sylvan|Terran|Thieves' cant|Undercommon)\b/g, (...m) => {
+			tags.push({languageProficiency: m[1].toLowerCase()});
+			return "";
+		});
+
+		// "by a creature that has proficiency in the Arcana skill"
+		req = req.replace(/(?:a creature that has )?(?:proficiency|proficient).*?\b(Acrobatics|Animal Handling|Arcana|Athletics|Deception|History|Insight|Intimidation|Investigation|Medicine|Nature|Perception|Performance|Persuasion|Religion|Sleight of Hand|Stealth|Survival)\b skill/g, (...m) => {
+			tags.push({skillProficiency: m[1].toLowerCase()});
+			return "";
+		});
+
+		// "by a dwarf"
+		req = req.replace(/(?:(?:a|an) )?\b(Dragonborn|Dwarf|Elf|Gnome|Half-Elf|Half-Orc|Halfling|Human|Tiefling|Warforged)\b/gi, (...m) => {
+			const source = m[1].toLowerCase() === "warforged" ? SRC_ERLW : "";
+			tags.push({race: `${m[1]}${source ? `|${source}` : ""}`.toLowerCase()});
+			return "";
+		});
+
+		// "by a humanoid", "by a small humanoid"
+		req = req.replace(/a (?:\b(tiny|small|medium|large|huge|gargantuan)\b )?\b(aberration|beast|celestial|construct|dragon|elemental|fey|fiend|giant|humanoid|monstrosity|ooze|plant|undead)\b/gi, (...m) => {
+			const size = m[1] ? m[1][0].toUpperCase() : null;
+			const out = {creatureType: m[2].toLowerCase()};
+			if (size) out.size = size;
+			tags.push(out);
+			return "";
+		});
+
+		// "by a spellcaster"
+		req = req.replace(/(?:a )?\bspellcaster\b/gi, (...m) => {
+			tags.push({spellcasting: true});
+			return "";
+		});
+
+		// "by a creature that has psionic ability"
+		req = req.replace(/(?:a creature that has )?\bpsionic ability/gi, (...m) => {
+			tags.push({psionics: true});
+			return "";
+		});
+
+		// "by a bard, cleric, druid, sorcerer, warlock, or wizard"
+		req = req.replace(/(?:(?:a|an) )?\b(artificer|bard|cleric|druid|paladin|ranger|sorcerer|warlock|wizard)\b/gi, (...m) => {
+			const source = m[1].toLowerCase() === "artificer" ? SRC_TCE : null;
+			tags.push({class: `${m[1]}${source ? `|${source}` : ""}`.toLowerCase()});
+			return "";
+		});
+
+		// region Alignment
+		// "by a creature of evil alignment"
+		// "by a dwarf, fighter, or paladin of good alignment"
+		// "by an elf or half-elf of neutral good alignment"
+		// "by an evil cleric or paladin"
+		const alignmentParts = req.split(/,| or /gi)
+			.map(it => it.trim())
+			.filter(it => it && it !== "," && it !== "or");
+
+		alignmentParts.forEach(part => {
+			Object.values(AlignmentUtil.ALIGNMENTS)
+				.forEach(it => {
+					if (it.regexWeak.test(part)) {
+						// We assume the alignment modifies all previous entries
+						if (tags.length) tags.forEach(by => by.alignment = [...it.output]);
+						else tags.push({alignment: [...it.output]});
+					}
+				});
+		});
+		// endregion
+
+		const propOut = isAlt ? "reqAttuneAltTags" : "reqAttuneTags";
+		if (tags.length) obj[propOut] = tags;
+		else delete obj[propOut];
+	}
+
+	static tryRun (it, opts) {
+		if (it.reqAttune) this._checkAndTag(it, opts);
+		if (it.inherits?.reqAttune) this._checkAndTag(it.inherits, opts);
+
+		if (it.reqAttuneAlt) this._checkAndTag(it, opts, true);
+		if (it.inherits?.reqAttuneAlt) this._checkAndTag(it.inherits, opts, true);
+	}
+}
+ReqAttuneTagTag._RAVNICA_GUILD_BACKGROUNDS = {
+	"Azorius": "Azorius Functionary|GGR",
+	"Boros": "Boros Legionnaire|GGR",
+	"Dimir": "Dimir Operative|GGR",
+	"Golgari": "Golgari Agent|GGR",
+	"Gruul": "Gruul Anarch|GGR",
+	"Izzet": "Izzet Engineer|GGR",
+	"Orzhov": "Orzhov Representative|GGR",
+	"Rakdos": "Rakdos Cultist|GGR",
+	"Selesnya": "Selesnya Initiate|GGR",
+	"Simic": "Simic Scientist|GGR",
+};
+ReqAttuneTagTag._EBERRON_MARK_RACES = {
+	"Mark of Warding": ["Dwarf (Mark of Warding)|ERLW"],
+	"Mark of Shadow": ["Elf (Mark of Shadow)|ERLW"],
+	"Mark of Scribing": ["Gnome (Mark of Scribing)|ERLW"],
+	"Mark of Detection": ["Half-Elf (Variant; Mark of Detection)|ERLW"],
+	"Mark of Storm": ["Half-Elf (Variant; Mark of Storm)|ERLW"],
+	"Mark of Finding": [
+		"Half-Orc (Mark of Finding)|ERLW",
+		"Human (Mark of Finding)|ERLW",
+	],
+	"Mark of Healing": ["Halfling (Mark of Healing)|ERLW"],
+	"Mark of Hospitality": ["Halfling (Mark of Hospitality)|ERLW"],
+	"Mark of Handling": ["Human (Mark of Handling)|ERLW"],
+	"Mark of Making": ["Human (Mark of Making)|ERLW"],
+	"Mark of Passage": ["Human (Mark of Passage)|ERLW"],
+	"Mark of Sentinel": ["Human (Mark of Sentinel)|ERLW"],
+};
+
 if (typeof module !== "undefined") {
 	module.exports = {
 		ConverterUtilsItem,
@@ -373,5 +634,10 @@ if (typeof module !== "undefined") {
 		BasicTextClean,
 		ItemMiscTag,
 		ItemSpellcastingFocusTag,
+		DamageResistanceTag,
+		DamageImmunityTag,
+		DamageVulnerabilityTag,
+		ConditionImmunityTag,
+		ReqAttuneTagTag,
 	};
 }

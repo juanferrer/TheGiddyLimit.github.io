@@ -2,6 +2,7 @@ const fs = require("fs");
 require("../js/utils.js");
 require("../js/render.js");
 require("../js/render-dice.js");
+Object.assign(global, require("../js/hist.js"));
 const utS = require("../node/util-search-index");
 const od = require("../js/omnidexer.js");
 const ut = require("../node/util.js");
@@ -26,36 +27,17 @@ const MSG = {
 	DuplicateEntityCheck: "",
 	ClassDataCheck: "",
 	RaceDataCheck: "",
+	FeatDataCheck: "",
+	BestiaryDataCheck: "",
+	RefTagCheck: "",
 };
 
-const TAG_TO_PAGE = {
-	"spell": UrlUtil.PG_SPELLS,
-	"item": UrlUtil.PG_ITEMS,
-	"class": UrlUtil.PG_CLASSES,
-	"creature": UrlUtil.PG_BESTIARY,
-	"condition": UrlUtil.PG_CONDITIONS_DISEASES,
-	"disease": UrlUtil.PG_CONDITIONS_DISEASES,
-	"background": UrlUtil.PG_BACKGROUNDS,
-	"race": UrlUtil.PG_RACES,
-	"optfeature": UrlUtil.PG_OPT_FEATURES,
-	"reward": UrlUtil.PG_REWARDS,
-	"feat": UrlUtil.PG_FEATS,
-	"psionic": UrlUtil.PG_PSIONICS,
-	"object": UrlUtil.PG_OBJECTS,
-	"cult": UrlUtil.PG_CULTS_BOONS,
-	"boon": UrlUtil.PG_CULTS_BOONS,
-	"trap": UrlUtil.PG_TRAPS_HAZARDS,
-	"hazard": UrlUtil.PG_TRAPS_HAZARDS,
-	"deity": UrlUtil.PG_DEITIES,
-	"variantrule": UrlUtil.PG_VARIANTRULES,
-	"action": UrlUtil.PG_ACTIONS,
-	"language": UrlUtil.PG_LANGUAGES,
-	"classFeature": UrlUtil.PG_CLASSES,
-	"subclassFeature": UrlUtil.PG_CLASSES,
-	"charoption": UrlUtil.PG_CHAR_CREATION_OPTIONS,
-	"vehicle": UrlUtil.PG_VEHICLES,
-	"vehupgrade": UrlUtil.PG_VEHICLES,
-};
+const WALKER = MiscUtil.getWalker({
+	keyBlacklist: MiscUtil.GENERIC_WALKER_ENTRIES_KEY_BLACKLIST,
+	isNoModification: true,
+});
+
+const TAG_TO_PAGE = Renderer.hover.TAG_TO_PAGE;
 
 const VALID_SKILLS = new Set([
 	"Acrobatics",
@@ -99,8 +81,18 @@ function fileRecurse (file, fileHandler, doParse, filenameMatcher) {
 }
 
 class TestTagsUtil {
-	static _testAdditionalSpells_testSpellExists (file, msgProp, spell) {
-		const url = getEncoded(spell, "spell");
+	static _testAdditionalSpells_testSpellExists (file, msgProp, spellOrObj) {
+		if (typeof spellOrObj === "object") {
+			if (spellOrObj.choose) {
+				// e.g. "level=0|class=Sorcerer"
+				// (no-op)
+			} else throw new Error(`Unhandled additionalSpells special object: ${JSON.stringify(spellOrObj)}`);
+
+			return;
+		}
+
+		spellOrObj = spellOrObj.split("#")[0]; // An optional "cast at spell level" can be added with a "#", remove it
+		const url = getEncoded(spellOrObj, "spell");
 
 		if (!ALL_URLS.has(url)) {
 			MSG[msgProp] += `Missing link: ${url} in file ${file} (evaluates to "${url}") in "additionalSpells"\nSimilar URLs were:\n${getSimilar(url)}\n`;
@@ -111,17 +103,27 @@ class TestTagsUtil {
 		if (!obj.additionalSpells) return;
 		obj.additionalSpells
 			.forEach(additionalSpellOption => {
-				Object.values(additionalSpellOption)
-					.forEach(levelToSpells => {
+				Object.entries(additionalSpellOption)
+					.forEach(([k, levelToSpells]) => {
+						if (k === "ability" || k === "name") return;
+
 						Object.values(levelToSpells).forEach(spellListOrMeta => {
 							if (spellListOrMeta instanceof Array) {
 								return spellListOrMeta.forEach(sp => this._testAdditionalSpells_testSpellExists(file, msgProp, sp));
-							} else if (typeof spellListOrMeta === "string") return; // Skip any single strings, e.g. ability
+							}
 
 							Object.entries(spellListOrMeta)
 								.forEach(([prop, val]) => {
 									switch (prop) {
-										case "rest": Object.values(val).forEach(spellList => spellList.forEach(sp => this._testAdditionalSpells_testSpellExists(file, msgProp, sp))); break;
+										case "daily":
+										case "rest":
+											Object.values(val).forEach(spellList => spellList.forEach(sp => this._testAdditionalSpells_testSpellExists(file, msgProp, sp)));
+											break;
+										case "will":
+										case "ritual":
+										case "_":
+											val.forEach(sp => this._testAdditionalSpells_testSpellExists(file, msgProp, sp))
+											break;
 										default: throw new Error(`Unhandled additionalSpells prop "${prop}"`);
 									}
 								});
@@ -294,6 +296,24 @@ class ItemDataCheck {
 		})
 	}
 
+	static _checkReqAttuneTags (file, root, name, source, prop) {
+		const tagsArray = root[prop];
+
+		tagsArray.forEach(tagBlock => {
+			Object.entries(tagBlock)
+				.forEach(([prop, val]) => {
+					switch (prop) {
+						case "background":
+						case "race":
+						case "class": {
+							const url = getEncoded(val, prop);
+							if (!ALL_URLS.has(url)) MSG.ItemDataCheck += `Missing link: ${val} in file ${file} "${prop}" (evaluates to "${url}")\nSimilar URLs were:\n${getSimilar(url)}\n`;
+						}
+					}
+				});
+		})
+	}
+
 	static _checkRoot (file, root, name, source) {
 		if (!root) return;
 
@@ -332,6 +352,9 @@ class ItemDataCheck {
 				MSG.ItemDataCheck += `Missing link: ${root.baseItem} in file ${file} (evaluates to "${url}")\nSimilar URLs were:\n${getSimilar(url)}\n`;
 			}
 		}
+
+		if (root.reqAttuneTags) this._checkReqAttuneTags(file, root, name, source, "reqAttuneTags");
+		if (root.reqAttuneAltTags) this._checkReqAttuneTags(file, root, name, source, "reqAttuneAltTags");
 	}
 
 	static run () {
@@ -669,16 +692,27 @@ LootDataCheck.file = `data/loot.json`;
 class SpellDataCheck {
 	static run () {
 		const classIndex = JSON.parse(fs.readFileSync(SpellDataCheck._FILE_CLASS_INDEX, "utf8"));
-		Object.values(classIndex).forEach(f => {
-			const data = JSON.parse(fs.readFileSync(`data/class/${f}`, "utf8"));
-			data.class.forEach(c => {
-				const classMeta = {name: c.name, source: c.source};
-				if (c.subclasses) {
-					classMeta.subclasses = c.subclasses.map(sc => ({name: sc.shortName, source: sc.source}));
-				}
+
+		const allClassJsons = Object.values(classIndex)
+			.map(f => JSON.parse(fs.readFileSync(`data/class/${f}`, "utf8")));
+
+		const allClassData = allClassJsons
+			.map(it => (it.class || []))
+			.flat();
+
+		const allSubclassData = allClassJsons
+			.map(it => (it.subclass || []))
+			.flat();
+
+		allClassData
+			.forEach(cls => {
+				const classMeta = {name: cls.name, source: cls.source};
+
+				const matchingSubclasses = allSubclassData.filter(it => it.className === cls.name && it.classSource === cls.source);
+				if (matchingSubclasses.length) classMeta.availableSubclasses = matchingSubclasses.map(sc => ({name: sc.shortName, source: sc.source}));
+
 				SpellDataCheck._CLASS_LIST.push(classMeta);
 			});
-		});
 
 		const spellIndex = JSON.parse(fs.readFileSync(SpellDataCheck._FILE_SPELL_INDEX, "utf8"));
 		Object.values(spellIndex).forEach(f => {
@@ -694,10 +728,10 @@ class SpellDataCheck {
 				if (sp.classes.fromSubclass) {
 					sp.classes.fromSubclass.forEach(sc => {
 						const clazz = SpellDataCheck._CLASS_LIST.find(it => it.name === sc.class.name && it.source === sc.class.source);
-						if (!clazz) return MSG.SpellDataCheck += `Invalid subclass class: $s{JSON.stringify(sc)} in spell "${sp.name}" in file "${f}"\n`;
-						if (!clazz.subclasses) return MSG.SpellDataCheck += `Subclass class has no known subclasses: ${JSON.stringify(sc)} in spell "${sp.name}" in file "${f}"\n`;
+						if (!clazz) return MSG.SpellDataCheck += `Invalid subclass class: ${JSON.stringify(sc)} in spell "${sp.name}" in file "${f}"\n`;
+						if (!clazz.availableSubclasses) return MSG.SpellDataCheck += `Subclass class has no known subclasses: ${JSON.stringify(sc)} in spell "${sp.name}" in file "${f}"\n`;
 
-						const isValidSubclass = clazz.subclasses.some(it => it.name === sc.subclass.name && it.source === sc.subclass.source);
+						const isValidSubclass = clazz.availableSubclasses.some(it => it.name === sc.subclass.name && it.source === sc.subclass.source);
 						if (!isValidSubclass) return MSG.SpellDataCheck += `Subclass (shortName) does not exist: ${JSON.stringify(sc)} in spell "${sp.name}" in file "${f}"\n`;
 					});
 				}
@@ -712,11 +746,6 @@ SpellDataCheck._CLASS_LIST = [];
 
 class ClassDataCheck {
 	static _doCheckClass (file, data, cls) {
-		const walker = MiscUtil.getWalker({
-			keyBlacklist: MiscUtil.GENERIC_WALKER_ENTRIES_KEY_BLACKLIST,
-			isNoModification: true,
-		});
-
 		// region Check `classFeatures` -> `classFeature` links
 		const featureLookup = {};
 		(data.classFeature || []).forEach(cf => {
@@ -746,38 +775,8 @@ class ClassDataCheck {
 			},
 		};
 		(data.classFeature || []).forEach(cf => {
-			walker.walk(cf.entries, handlersNestedRefsClass);
+			WALKER.walk(cf.entries, handlersNestedRefsClass);
 		});
-		// endregion
-
-		// region check `subclassFeatures` -> `subclassFeature` links
-		if (cls.subclasses) {
-			const subclassFeatureLookup = {};
-			(data.subclassFeature || []).forEach(scf => {
-				const hash = UrlUtil.URL_TO_HASH_BUILDER["subclassFeature"](scf);
-				subclassFeatureLookup[hash] = true;
-			});
-
-			cls.subclasses.forEach(sc => this._doCheckSubclass(file, data, subclassFeatureLookup, cls, sc));
-
-			const handlersNestedRefsSubclass = {
-				array: (arr) => {
-					arr.forEach(it => {
-						if (it.type !== "refSubclassFeature") return;
-
-						const uid = it.subclassFeature || it;
-						const unpacked = DataUtil.class.unpackUidSubclassFeature(uid, {isLower: true});
-						const hash = UrlUtil.URL_TO_HASH_BUILDER["subclassFeature"](unpacked);
-
-						if (!subclassFeatureLookup[hash]) MSG.ClassDataCheck += `Missing subclass feature in "refSubclassFeature": ${it.subclassFeature} in file ${file} not found in the files "subclassFeature" array\n`;
-					});
-					return arr;
-				},
-			};
-			(data.subclassFeature || []).forEach(scf => {
-				walker.walk(scf.entries, handlersNestedRefsSubclass);
-			});
-		}
 		// endregion
 
 		// region Referenced optional features
@@ -793,15 +792,17 @@ class ClassDataCheck {
 			},
 		};
 		(data.classFeature || []).forEach(cf => {
-			walker.walk(cf.entries, handlersNestedRefsOptionalFeatures);
+			WALKER.walk(cf.entries, handlersNestedRefsOptionalFeatures);
 		});
 		(data.subclassFeature || []).forEach(scf => {
-			walker.walk(scf.entries, handlersNestedRefsOptionalFeatures);
+			WALKER.walk(scf.entries, handlersNestedRefsOptionalFeatures);
 		});
 		// endregion
 	}
 
-	static _doCheckSubclass (file, data, subclassFeatureLookup, cls, sc) {
+	static _doCheckSubclass (file, data, subclassFeatureLookup, sc) {
+		if (sc._copy && !sc.subclassFeatures) return;
+
 		sc.subclassFeatures.forEach(ref => {
 			const uid = ref.subclassFeature || ref;
 			const unpacked = DataUtil.class.unpackUidSubclassFeature(uid, {isLower: true});
@@ -818,8 +819,44 @@ class ClassDataCheck {
 		Object.values(index)
 			.map(filename => ({filename: filename, data: ut.readJson(`./data/class/${filename}`)}))
 			.forEach(({filename, data}) => {
-				data.class.forEach(cls => ClassDataCheck._doCheckClass(filename, data, cls));
+				this._run_handleFileClasses({filename, data});
+				this._run_handleFileSubclasses({filename, data});
 			});
+	}
+
+	static _run_handleFileClasses ({filename, data}) {
+		(data.class || []).forEach(cls => ClassDataCheck._doCheckClass(filename, data, cls));
+	}
+
+	static _run_handleFileSubclasses ({filename, data}) {
+		if (!data.subclass) return;
+
+		const subclassFeatureLookup = {};
+		(data.subclassFeature || []).forEach(scf => {
+			const hash = UrlUtil.URL_TO_HASH_BUILDER["subclassFeature"](scf);
+			subclassFeatureLookup[hash] = true;
+		});
+
+		data.subclass.forEach(sc => this._doCheckSubclass(filename, data, subclassFeatureLookup, sc));
+
+		// Check `subclassFeatures` -> `subclassFeature` links
+		const handlersNestedRefsSubclass = {
+			array: (arr) => {
+				arr.forEach(it => {
+					if (it.type !== "refSubclassFeature") return;
+
+					const uid = it.subclassFeature || it;
+					const unpacked = DataUtil.class.unpackUidSubclassFeature(uid, {isLower: true});
+					const hash = UrlUtil.URL_TO_HASH_BUILDER["subclassFeature"](unpacked);
+
+					if (!subclassFeatureLookup[hash]) MSG.ClassDataCheck += `Missing subclass feature in "refSubclassFeature": ${it.subclassFeature} in file ${filename} not found in the files "subclassFeature" array\n`;
+				});
+				return arr;
+			},
+		};
+		(data.subclassFeature || []).forEach(scf => {
+			WALKER.walk(scf.entries, handlersNestedRefsSubclass);
+		});
 	}
 }
 
@@ -834,6 +871,43 @@ class RaceDataCheck {
 		races.race.forEach(r => {
 			this._handleRaceOrSubraceRaw(file, r);
 			(r.subraces || []).forEach(sr => this._handleRaceOrSubraceRaw(file, sr, r))
+		});
+	}
+}
+
+class FeatDataCheck {
+	static _handleFeat (file, feat) {
+		// if (feat.additionalSpells?.length > 1 && feat.additionalSpells.some(it => !it.name)) console.log(feat.name)
+		TestTagsUtil.testAdditionalSpells(file, "FeatDataCheck", feat);
+	}
+
+	static run () {
+		const file = `data/feats.json`;
+		const featJson = require(`../${file}`);
+		featJson.feat.forEach(f => this._handleFeat(file, f));
+	}
+}
+
+class BestiaryDataCheck {
+	static _handleCreature (file, mon) {
+		if (mon.summonedBySpell) {
+			const url = getEncoded(mon.summonedBySpell, "spell");
+			if (!ALL_URLS.has(url)) MSG.BestiaryDataCheck += `Missing link: ${mon.summonedBySpell} in file ${file} "summonedBySpell" (evaluates to "${url}")\nSimilar URLs were:\n${getSimilar(url)}\n`;
+		}
+	}
+
+	static run () {
+		const index = JSON.parse(fs.readFileSync(`data/bestiary/index.json`, "utf-8"));
+		const fileMetas = Object.values(index)
+			.map(filename => {
+				const file = `data/bestiary/${filename}`;
+				return {
+					file,
+					contents: JSON.parse(fs.readFileSync(file, "utf-8")),
+				};
+			});
+		fileMetas.forEach(({file, contents}) => {
+			(contents.monster || []).forEach(mon => this._handleCreature(file, mon))
 		});
 	}
 }
@@ -880,6 +954,13 @@ class DuplicateEntityCheck {
 							}
 							break;
 						}
+						case "subclass": {
+							if (name && source) {
+								const key = `${source} :: ${ent.classSource} :: ${ent.className} :: ${name}`;
+								(positions[key] = positions[key] || []).push(i);
+							}
+							break;
+						}
 						case "classFeature": {
 							if (name && source) {
 								const key = `${source} :: ${ent.level} :: ${ent.classSource} :: ${ent.className} :: ${name}`;
@@ -890,6 +971,13 @@ class DuplicateEntityCheck {
 						case "subclassFeature": {
 							if (name && source) {
 								const key = `${source} :: ${ent.level} :: ${ent.classSource} :: ${ent.className} :: ${ent.subclassSource} :: ${ent.subclassShortName} :: ${name}`;
+								(positions[key] = positions[key] || []).push(i);
+							}
+							break;
+						}
+						case "raceFeature": {
+							if (name && source) {
+								const key = `${source} :: ${ent.raceSource} :: ${ent.raceName} :: ${name}`;
 								(positions[key] = positions[key] || []).push(i);
 							}
 							break;
@@ -918,29 +1006,78 @@ class DuplicateEntityCheck {
 	}
 }
 
-async function main () {
-	const primaryIndex = od.Omnidexer.decompressIndex(await utS.UtilSearchIndex.pGetIndex(false, true));
-	primaryIndex.forEach(it => ALL_URLS.add(`${UrlUtil.categoryToPage(it.c)}#${(it.u).toLowerCase().trim()}`));
-	const highestId = primaryIndex.last().id;
-	const secondaryIndexItem = od.Omnidexer.decompressIndex(await utS.UtilSearchIndex.pGetIndexAdditionalItem(highestId + 1, false));
-	secondaryIndexItem.forEach(it => ALL_URLS.add(`${UrlUtil.categoryToPage(it.c)}#${(it.u).toLowerCase().trim()}`));
+class RefTagCheck {
+	static checkFile (file, contents) {
+		Object.entries(contents)
+			.filter(([_, arr]) => arr instanceof Array)
+			.forEach(([prop, arr]) => {
+				arr.forEach(ent => {
+					if (!ent.hasRefs) return;
+					WALKER.walk(
+						ent,
+						{
+							object: (obj) => {
+								if (!obj.type || !RefTagCheck._RE_TAG.test(obj.type)) return;
+								const prop = obj.type.slice(3).lowercaseFirst();
+								RefTagCheck._TO_CHECK.push(`{#${prop} ${obj[prop]}}`);
+							},
+							string: (str) => {
+								if (!str.startsWith("{#") || !str.endsWith("}")) return;
+								RefTagCheck._TO_CHECK.push(str);
+							},
+						},
+					)
+				});
+			});
+	}
 
-	// populate class/subclass index
-	ut.patchLoadJson();
-	const classData = await DataUtil.class.loadJSON();
-	ut.unpatchLoadJson();
-	classData.class.forEach(cls => {
-		cls.name = cls.name.toLowerCase();
-		cls.source = (cls.source || SRC_PHB).toLowerCase();
+	static async pPostRun () {
+		if (!RefTagCheck._TO_CHECK.length) return;
 
-		CLASS_SUBCLASS_LOOKUP[cls.source] = CLASS_SUBCLASS_LOOKUP[cls.source] || {};
-		CLASS_SUBCLASS_LOOKUP[cls.source][cls.name] = {};
+		for (const toCheck of RefTagCheck._TO_CHECK) {
+			const toCheckMeta = Renderer.hover.getRefMetaFromTag(toCheck);
 
-		(cls.subclasses || []).forEach(sc => {
-			sc.shortName = (sc.shortName || sc.name).toLowerCase();
-			sc.source = (sc.source || cls.source).toLowerCase();
+			const prop = toCheckMeta.type.slice(3).lowercaseFirst();
 
-			CLASS_SUBCLASS_LOOKUP[cls.source][cls.name][sc.source] = CLASS_SUBCLASS_LOOKUP[cls.source][cls.name][sc.source] || {};
+			const refUnpacked = DataUtil.generic.unpackUid(toCheckMeta[prop], prop);
+			const refHash = UrlUtil.URL_TO_HASH_BUILDER[prop](refUnpacked);
+
+			const cpy = await Renderer.hover.pCacheAndGetHash(prop, refHash, {isCopy: true});
+			if (!cpy) {
+				MSG.RefTagCheck += `Missing ref tag: ${toCheck}\n`;
+			}
+		}
+	}
+}
+RefTagCheck._RE_TAG = /^ref[A-Z]/;
+RefTagCheck._TO_CHECK = [];
+
+class TagTester {
+	static async pInit () {
+		await this._pInit_pPopulateUrls();
+		await this._pInit_pPopulateClassSubclassIndex();
+	}
+
+	static async _pInit_pPopulateUrls () {
+		const primaryIndex = od.Omnidexer.decompressIndex(await utS.UtilSearchIndex.pGetIndex(false, true));
+		primaryIndex.forEach(it => ALL_URLS.add(`${UrlUtil.categoryToPage(it.c)}#${(it.u).toLowerCase().trim()}`));
+		const highestId = primaryIndex.last().id;
+		const secondaryIndexItem = od.Omnidexer.decompressIndex(await utS.UtilSearchIndex.pGetIndexAdditionalItem(highestId + 1, false));
+		secondaryIndexItem.forEach(it => ALL_URLS.add(`${UrlUtil.categoryToPage(it.c)}#${(it.u).toLowerCase().trim()}`));
+	}
+
+	static async _pInit_pPopulateClassSubclassIndex () {
+		ut.patchLoadJson();
+		const classData = await DataUtil.class.loadJSON();
+		ut.unpatchLoadJson();
+
+		const tmpClassIxFeatures = {};
+		classData.class.forEach(cls => {
+			cls.name = cls.name.toLowerCase();
+			cls.source = (cls.source || SRC_PHB).toLowerCase();
+
+			CLASS_SUBCLASS_LOOKUP[cls.source] = CLASS_SUBCLASS_LOOKUP[cls.source] || {};
+			CLASS_SUBCLASS_LOOKUP[cls.source][cls.name] = {};
 
 			const ixFeatures = [];
 			cls.classFeatures.forEach((levelFeatures, ixLevel) => {
@@ -948,10 +1085,25 @@ async function main () {
 					ixFeatures.push(`${ixLevel}-${ixFeature}`)
 				});
 			});
-
-			CLASS_SUBCLASS_LOOKUP[cls.source][cls.name][sc.source][sc.shortName] = ixFeatures;
+			MiscUtil.set(tmpClassIxFeatures, cls.source, cls.name, ixFeatures);
 		});
-	});
+
+		classData.subclass.forEach(sc => {
+			sc.shortName = (sc.shortName || sc.name).toLowerCase();
+			sc.source = (sc.source || sc.classSource).toLowerCase();
+			sc.className = sc.className.toLowerCase();
+			sc.classSource = sc.classSource.toLowerCase();
+
+			if (sc.className === VeCt.STR_GENERIC.toLowerCase() && sc.classSource === VeCt.STR_GENERIC.toLowerCase()) return;
+
+			CLASS_SUBCLASS_LOOKUP[sc.classSource][sc.className][sc.source] = CLASS_SUBCLASS_LOOKUP[sc.classSource][sc.className][sc.source] || {};
+			CLASS_SUBCLASS_LOOKUP[sc.classSource][sc.className][sc.source][sc.shortName] = MiscUtil.copy(MiscUtil.get(tmpClassIxFeatures, sc.classSource, sc.className));
+		});
+	}
+}
+
+async function main () {
+	await TagTester.pInit();
 
 	LinkCheck.addHandlers();
 	ClassLinkCheck.addHandlers();
@@ -965,7 +1117,12 @@ async function main () {
 	ParsedJsonChecker.register(AreaCheck.checkFile.bind(AreaCheck));
 	ParsedJsonChecker.register(EscapeCharacterCheck.checkFile.bind(EscapeCharacterCheck));
 	ParsedJsonChecker.register(DuplicateEntityCheck.checkFile.bind(DuplicateEntityCheck));
+	ParsedJsonChecker.register(RefTagCheck.checkFile.bind(RefTagCheck));
 	ParsedJsonChecker.runAll();
+
+	ut.patchLoadJson();
+	await RefTagCheck.pPostRun();
+	ut.unpatchLoadJson();
 
 	ItemDataCheck.run();
 	ActionData.run();
@@ -974,6 +1131,8 @@ async function main () {
 	SpellDataCheck.run();
 	ClassDataCheck.run();
 	RaceDataCheck.run();
+	FeatDataCheck.run();
+	BestiaryDataCheck.run();
 
 	let outMessage = "";
 	Object.entries(MSG).forEach(([k, v]) => {

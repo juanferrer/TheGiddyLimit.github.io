@@ -1,6 +1,7 @@
 {
 	"$schema": "http://json-schema.org/draft-07/schema#",
-	"version": "1.2.6",
+	"$id": "magicvariants.json",
+	"version": "1.4.3",
 	"type": "object",
 	"properties": {
 		"variant": {
@@ -18,7 +19,7 @@
 					"entries": {
 						"type": "array",
 						"items": {
-							"properties": {}
+							"$ref": "entry.json"
 						}
 					},
 					"requires": {
@@ -79,7 +80,13 @@
 							"bonusSpellAttack": {
 								"type": "string"
 							},
+							"bonusSpellDamage": {
+								"type": "string"
+							},
 							"bonusSavingThrow": {
+								"type": "string"
+							},
+							"bonusAbilityCheck": {
 								"type": "string"
 							},
 							"tier": {
@@ -128,8 +135,17 @@
 							"curse": {
 								"type": "boolean"
 							},
+							"vulnerable": {
+								"$ref": "util.json#/definitions/damageVulnerabilityArray"
+							},
 							"resist": {
-								"type": "string"
+								"$ref": "util.json#/definitions/damageResistArray"
+							},
+							"immune": {
+								"$ref": "util.json#/definitions/damageImmunityArray"
+							},
+							"conditionImmune": {
+								"$ref": "util.json#/definitions/conditionImmunityArray"
 							},
 							"stealth": {
 								"type": "boolean"
@@ -143,7 +159,7 @@
 							"entries": {
 								"type": "array",
 								"items": {
-									"properties": {}
+									"$ref": "entry.json"
 								}
 							},
 							"charges": {
@@ -164,11 +180,13 @@
 										},
 										{
 											"type": "object",
-											"name": {
-												"type": "string"
-											},
-											"source": {
-												"type": "string"
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"source": {
+													"type": "string"
+												}
 											}
 										}
 									]
@@ -196,7 +214,14 @@
 							},
 							"barding": {
 								"type": "boolean"
-							}
+							},
+							"reqAttuneTags": {
+								"$ref": "util.json#/definitions/reqAttuneTags"
+							},
+							"reqAttuneAltTags": {
+								"$ref": "util.json#/definitions/reqAttuneTags"
+							},
+							"hasRefs": {"type": "boolean"}
 						},
 						"required": [
 							"rarity",
@@ -247,7 +272,15 @@
 					},
 					"ammo": {
 						"type": "boolean"
-					}
+					},
+					"reqAttuneTags": {
+						"$ref": "util.json#/definitions/reqAttuneTags"
+					},
+					"reqAttuneAltTags": {
+						"$ref": "util.json#/definitions/reqAttuneTags"
+					},
+					"hasFluff": {"type": "boolean"},
+					"hasFluffImages": {"type": "boolean"}
 				},
 				"required": [
 					"name",

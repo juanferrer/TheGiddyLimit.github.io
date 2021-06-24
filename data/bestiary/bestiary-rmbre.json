@@ -15,6 +15,7 @@
 	"monster": [
 		{
 			"name": "Billy Beaver",
+			"isNpc": true,
 			"source": "RMBRE",
 			"page": 27,
 			"size": "L",
@@ -99,10 +100,12 @@
 			],
 			"miscTags": [
 				"MW"
-			]
+			],
+			"hasFluff": true
 		},
 		{
 			"name": "Buster the Bear",
+			"isNpc": true,
 			"source": "RMBRE",
 			"page": 27,
 			"size": "M",
@@ -187,7 +190,8 @@
 			],
 			"miscTags": [
 				"MW"
-			]
+			],
+			"hasFluff": true
 		},
 		{
 			"name": "Large Mimic",
@@ -224,6 +228,7 @@
 		},
 		{
 			"name": "Layla the Lizard",
+			"isNpc": true,
 			"source": "RMBRE",
 			"page": 28,
 			"size": "M",
@@ -297,7 +302,8 @@
 			],
 			"miscTags": [
 				"MW"
-			]
+			],
+			"hasFluff": true
 		},
 		{
 			"name": "Lycanthropickle",
@@ -381,7 +387,9 @@
 			],
 			"miscTags": [
 				"MW"
-			]
+			],
+			"hasFluff": true,
+			"hasFluffImages": true
 		},
 		{
 			"name": "Meeseeks",
@@ -398,6 +406,7 @@
 		},
 		{
 			"name": "Piggy Wiggle Butt",
+			"isNpc": true,
 			"source": "RMBRE",
 			"page": 28,
 			"size": "M",
@@ -483,10 +492,12 @@
 			],
 			"miscTags": [
 				"MW"
-			]
+			],
+			"hasFluff": true
 		},
 		{
 			"name": "Thomas T. Toad",
+			"isNpc": true,
 			"source": "RMBRE",
 			"page": 28,
 			"size": "L",
@@ -558,7 +569,8 @@
 			],
 			"miscTags": [
 				"MW"
-			]
+			],
+			"hasFluff": true
 		},
 		{
 			"name": "Tommy Two-Butts",

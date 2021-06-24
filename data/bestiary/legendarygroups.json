@@ -45,9 +45,10 @@
 					"items": [
 						"Supernatural shadow turns all bright light to dim light in underground regions within 6 miles of the lair.",
 						"Intermittent, echoing caws can be heard coming from all directions within 6 miles of the lair.",
-						"Subterranean beasts within 1 mile of the ancient deep crow's lair serve as the creature's eyes and ears, alerting it to the presence of intruders and making it all but impossible to surprise the ancient deep crow. If the ancient deep crow dies, these effects fade immediately."
+						"Subterranean beasts within 1 mile of the ancient deep crow's lair serve as the creature's eyes and ears, alerting it to the presence of intruders and making it all but impossible to surprise the ancient deep crow."
 					]
-				}
+				},
+				"If the ancient deep crow dies, these effects fade immediately."
 			]
 		},
 		{
@@ -560,7 +561,7 @@
 			"name": "Fraz-Urb'luu",
 			"source": "MTF",
 			"lairActions": [
-				"On Initiative count 20 (losing initiative ties), Fraz-Urb'luu can take a lair action to cause one of the following effects: he can't use the same effect two rounds in a row:",
+				"On Initiative count 20 (losing initiative ties), Fraz-Urb'luu can take a lair action to cause one of the following effects; he can't use the same effect two rounds in a row:",
 				{
 					"type": "list",
 					"items": [
@@ -616,7 +617,7 @@
 								],
 								[
 									"81\u201300",
-									"\"My perception of reality doesn't match anyone else's. It makes me {@condition prone} to violent delusions that make no sense to anyone else.\""
+									"\"My perception of reality doesn't match anyone else's. It makes me prone to violent delusions that make no sense to anyone else.\""
 								]
 							]
 						}
@@ -731,7 +732,7 @@
 			"name": "Graz'zt",
 			"source": "MTF",
 			"lairActions": [
-				"On Initiative count 20 (losing initiative ties), Graz'zt can take a lair action to cause one of the following effects: he can't use the same effect two rounds in a row:",
+				"On Initiative count 20 (losing initiative ties), Graz'zt can take a lair action to cause one of the following effects; he can't use the same effect two rounds in a row:",
 				{
 					"type": "list",
 					"items": [
@@ -936,7 +937,7 @@
 			"name": "Juiblex",
 			"source": "MTF",
 			"lairActions": [
-				"On Initiative count 20 (losing initiative ties), Juiblex can take a lair action to cause one of the following effects: he can't use the same effect two rounds in a row:",
+				"On Initiative count 20 (losing initiative ties), Juiblex can take a lair action to cause one of the following effects; he can't use the same effect two rounds in a row:",
 				{
 					"type": "list",
 					"items": [
@@ -1018,7 +1019,7 @@
 			"name": "Ki-rin",
 			"source": "VGM",
 			"lairActions": [
-				"Inside its lair, a ki-rin has the power to conjure objects up to three times per day, using each of the following versions of the power once. One version permanently creates enough objects made of soft, plant-based material - including manufactured objects such as cloth, pillows, rope, blankets, and clothing - to fill a cube 20 feet on a side. The second version enough objects made of wood, or similarly hard plant-based material, to fill a cube 10 feet on a side. The third version creates enough objects made of stone or metal to fill a cube 2 feet on a side, but any materials created in this way last for only 1 hour."
+				"Inside its lair, a ki-rin has the power to conjure objects up to three times per day, using each of the following versions of the power once. One version permanently creates enough objects made of soft, plant-based material - including manufactured objects such as cloth, pillows, rope, blankets, and clothing - to fill a cube 20 feet on a side. The second version permanently creates enough objects made of wood, or similarly hard plant-based material, to fill a cube 10 feet on a side. The third version creates enough objects made of stone or metal to fill a cube 2 feet on a side, but any materials created in this way last for only 1 hour."
 			],
 			"regionalEffects": [
 				"The ki-rin's celestial nature transforms the region around its lair. Any of the following magical effects is possible for travelers to encounter in the vicinity:",
@@ -1073,6 +1074,21 @@
 						"The lich rolls a {@dice d8} and regains a spell slot of that level or lower. If it has no spent spell slots of that level or lower, nothing happens.",
 						"The lich targets one creature it can see within 30 feet of it. A crackling cord of negative energy tethers the lich to the target. Whenever the lich takes damage, the target must make a {@dc 18} Constitution saving throw. On a failed save, the lich takes half the damage (rounded down), and the target takes the remaining damage. This tether lasts until initiative count 20 on the next round or until the lich or the target is no longer in the lich's lair.",
 						"The lich calls forth the spirits of creatures that died in its lair. These apparitions materialize and attack one creature that the lich can see within 60 feet of it. The target must succeed on a {@dc 18} Constitution saving throw, taking 52 ({@damage 15d6}) necrotic damage on a failed save, or half as much damage on a success. The apparitions then disappear."
+					]
+				}
+			]
+		},
+		{
+			"name": "Lichen Lich",
+			"source": "CM",
+			"lairActions": [
+				"On initiative count 20 (losing initiative ties), the lichen lich can take a lair action to cause one of the following effects:",
+				{
+					"type": "list",
+					"items": [
+						"Poisonous spores fill a 10-foot cube that the lich can see within 120 feet of it. Any creature that enters the cloud for the first time on a turn or starts its turn there must succeed on a DC 19 Constitution saving throw or be poisoned until the end of its next turn. The cloud lasts for 1 minute or until it is dispersed by a strong wind.",
+						"The lich commands the might of its diseased grove, creating a shambling mound. The shambling mound appears in an unoccupied space within 30 feet of the lich, acts on its own initiative count, and obeys the lich's commands. The shambling mound dies after 1 hour or when the lich uses this lair action again.",
+						"Rotten roots and vines magically erupt in a 20-foot radius centered on a point on the ground that the lich can see within 120 feet of it. The lich is unaffected by the roots and vines. For all other creatures, the area becomes difficult terrain, and each creature in the area must succeed on a DC 19 Strength saving throw or be restrained by the roots. As an action, a creature can try to free itself or another creature within its reach, doing so with a successful DC 19 Strength (Athletics) check. The roots and vines wilt away when the lich uses this lair action again or when the lich dies."
 					]
 				}
 			]
@@ -1167,6 +1183,20 @@
 			]
 		},
 		{
+			"name": "Nintra Siotta",
+			"source": "CM",
+			"lairActions": [
+				"On initiative count 20 (losing initiative ties) Nintra can take a lair action to cause one of the following effects; she can't use the same effect two rounds in a row:",
+				{
+					"type": "list",
+					"items": [
+						"Nintra targets one pane of shadow glass in her lair, causing it to explode into shards. Each creature within 20 feet of the exploding pane must make a DC 18 Dexterity saving throw, taking 13 ({@dice 3d8}) piercing damage on a failed save, or half as much damage on a successful one. The shards fade away to vapor and the pane is restored to normal at the next initiative count 20.",
+						"Nintra targets one pane of shadow glass in her lair, briefly transforming it into a swirling vortex. One creature of her choice within 20 feet of the pane must succeed on a DC 20 Strength saving throw or be drawn into the vortex, taking 11 ({@dice 2d10}) necrotic damage. The creature is then teleported to an unoccupied space within 5 feet of another pane of shadow glass in Nintra's lair (determined randomly)."
+					]
+				}
+			]
+		},
+		{
 			"name": "Ogrémoch",
 			"source": "PotA",
 			"lairActions": [
@@ -1226,7 +1256,7 @@
 			"name": "Orcus",
 			"source": "MTF",
 			"lairActions": [
-				"On Initiative count 20 (losing initiative ties), Orcus can take a lair action to cause one of the following effects: he can't use the same effect two rounds in a row:",
+				"On Initiative count 20 (losing initiative ties), Orcus can take a lair action to cause one of the following effects; he can't use the same effect two rounds in a row:",
 				{
 					"type": "list",
 					"items": [
@@ -1504,6 +1534,33 @@
 			]
 		},
 		{
+			"name": "Valin Sarnaster",
+			"source": "CM",
+			"lairActions": [
+				"On initiative count 20 (losing initiative ties), Valin takes a lair action to cause one of the following effects; Valin can't use the same effect two rounds in a row.",
+				{
+					"type": "list",
+					"items": [
+						"Each undead creature in the lair can pinpoint the location of each living creature within 120 feet of it until initiative count 20 on the next round.",
+						"Each undead in the lair has advantage on saving throws against effects that turn undead until initiative count 20 on the next round.",
+						"Until initiative count 20 on the next round, any non-undead creature that tries to cast a spell of 4th level or lower in Valin's lair is wracked with pain. The creature can choose another action, but if it tries to cast the spell, it must make a DC 16 Constitution saving throw. On a failed save, it takes {@dice 1d6} necrotic damage per level of the spell, and the spell has no effect and is wasted."
+					]
+				}
+			],
+			"regionalEffects": [
+				"Valin's tomb is warped in any of the following ways by the creature's dark presence:",
+				{
+					"type": "list",
+					"items": [
+						"Food instantly molders and water instantly evaporates when brought into the lair. Other nonmagical drinks are spoiled\u2014wine turning to vinegar, for instance.",
+						"Divination spells cast within the lair by creatures other than Valin have a 25 percent chance to provide misleading results, as determined by the DM. If a divination spell already has a chance to fail or become unreliable when cast multiple times, that chance increases by 25 percent.",
+						"A creature that takes treasure from the lair is cursed until the treasure is returned. The cursed target has disadvantage on all saving throws. The curse lasts until removed by a remove curse spell or other magic."
+					]
+				},
+				"If Valin is destroyed, these regional effects end immediately."
+			]
+		},
+		{
 			"name": "Vampire",
 			"source": "MM",
 			"regionalEffects": [
@@ -1588,7 +1645,7 @@
 			"name": "Yeenoghu",
 			"source": "MTF",
 			"lairActions": [
-				"On Initiative count 20 (losing initiative ties), Yeenoghu can take a lair action to cause one of the following effects: he can't use the same effect two rounds in a row:",
+				"On Initiative count 20 (losing initiative ties), Yeenoghu can take a lair action to cause one of the following effects; he can't use the same effect two rounds in a row:",
 				{
 					"type": "list",
 					"items": [
@@ -1679,10 +1736,25 @@
 			]
 		},
 		{
+			"name": "Zikzokrishka",
+			"source": "CM",
+			"lairActions": [
+				"On initiative count 20 (losing initiative ties) whenever she is in the are V3, Zikzokrishka can take a lair action to cause one of the following effects. She can't use the same effect two rounds in a row:",
+				{
+					"type": "list",
+					"items": [
+						"Part of the ceiling collapses above one creature that Zikzokrishka can see. The creature must succeed on a DC 15 Dexterity saving throw or take 21 ({@dice 6d6}) bludgeoning damage and be knocked prone and buried under rubble. A buried creature is restrained and unable to stand up. A creature can use an action to try to pull itself or another creature out of the rubble, doing so with a successful DC 10 Strength (Athletics) check.",
+						"A cloud of sand swirls in a 20-foot-radius sphere centered on a point Zikzokrishka can see within 60 feet of it. The cloud spreads around corners. Each creature in the cloud must succeed on a DC 15 Constitution saving throw or be blinded for 1 minute. A creature can repeat the saving throw at the end of each of its turns, ending the effect on itself on a success.",
+						"Zikzokrishka chooses two points that it can see, each of which must be on a solid surface, and creates a 5-foot-wide line of lightning between them. The two points must be within 60 feet of Zikzokrishka and 60 feet of each other. Each creature in the line must succeed on a DC 15 Dexterity saving throw or take 10 ({@dice 3d6}) lightning damage."
+					]
+				}
+			]
+		},
+		{
 			"name": "Zuggtmoy",
 			"source": "MTF",
 			"lairActions": [
-				"On Initiative count 20 (losing initiative ties), Zuggtmoy can take a lair action to cause one of the following effects: he can't use the same effect two rounds in a row:",
+				"On Initiative count 20 (losing initiative ties), Zuggtmoy can take a lair action to cause one of the following effects; he can't use the same effect two rounds in a row:",
 				{
 					"type": "list",
 					"items": [

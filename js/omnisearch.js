@@ -78,11 +78,9 @@ class Omnisearch {
 
 		$(document.body).on("keypress", (e) => {
 			if (!EventUtil.noModifierKeys(e) || EventUtil.isInInput(e)) return;
-			if (e.key === "f" || e.key === "F") {
-				const toSel = e.key === "F" ? this._$iptSearch : $(`#filter-search-group`).find(`.search`);
-				// defer, otherwise the "f" will be input into the search field
-				setTimeout(() => toSel.select().focus(), 0);
-			}
+			if (e.key !== "F") return;
+			e.preventDefault();
+			this._$iptSearch.select().focus();
 		});
 	}
 
@@ -108,6 +106,8 @@ class Omnisearch {
 	}
 
 	static async pGetResults (searchTerm) {
+		searchTerm = (searchTerm || "").toAscii();
+
 		await this.pInit();
 
 		const basicTokens = searchTerm.split(/\s+/g);
@@ -176,7 +176,7 @@ class Omnisearch {
 
 			results = results
 				.filter(r => !categoryTerm || (r.doc.cf.toLowerCase() === categoryTerm))
-				.filter(r => !sourceTerms.length || (sourceTerms.includes(r.doc.s.toLowerCase())))
+				.filter(r => !sourceTerms.length || (r.doc.s && sourceTerms.includes(r.doc.s.toLowerCase())))
 				.filter(r => !pageRanges.length || (r.doc.p && pageRanges.some(range => r.doc.p >= range[0] && r.doc.p <= range[1])));
 		} else {
 			results = this._searchIndex.search(
@@ -220,7 +220,7 @@ class Omnisearch {
 	}
 
 	static _renderLink_getHoverString (category, url, src) {
-		return `onmouseover="Renderer.hover.pHandleLinkMouseOver(event, this, '${UrlUtil.categoryToHoverPage(category)}', '${src}', '${url.replace(/'/g, "\\'")}')" onmouseleave="Renderer.hover.handleLinkMouseLeave(event, this)" onmousemove="Renderer.hover.handleLinkMouseMove(event, this)" ${Renderer.hover.getPreventTouchString()}`;
+		return `onmouseover="Renderer.hover.pHandleLinkMouseOver(event, this)" onmouseleave="Renderer.hover.handleLinkMouseLeave(event, this)" onmousemove="Renderer.hover.handleLinkMouseMove(event, this)" data-vet-page="${UrlUtil.categoryToHoverPage(category).qq()}" data-vet-source="${src.qq()}" data-vet-hash="${url.qq()}" ${Renderer.hover.getPreventTouchString()}`;
 	}
 
 	static $getResultLink (r) {
@@ -233,7 +233,7 @@ class Omnisearch {
 
 		if (this._$btnToggleUa) this._$btnToggleUa.detach();
 		else {
-			this._$btnToggleUa = $(`<button class="btn btn-default btn-xs mr-2" title="Filter Unearthed Arcana and other unofficial source results" tabindex="-1">Include UA/etc.</button>`)
+			this._$btnToggleUa = $(`<button class="btn btn-default btn-xs mr-2" title="Include Unearthed Arcana and other unofficial source results" tabindex="-1">Include UA/etc.</button>`)
 				.on("click", () => this._state.isShowUa = !this._state.isShowUa);
 
 			const hkIsUa = () => {
@@ -246,7 +246,7 @@ class Omnisearch {
 
 		if (this._$btnToggleBlacklisted) this._$btnToggleBlacklisted.detach();
 		else {
-			this._$btnToggleBlacklisted = $(`<button class="btn btn-default btn-xs mr-2" title="Filter blacklisted content results" tabindex="-1">Include Blacklisted</button>`)
+			this._$btnToggleBlacklisted = $(`<button class="btn btn-default btn-xs mr-2" title="Include blacklisted content results" tabindex="-1">Include Blacklisted</button>`)
 				.on("click", async () => this._state.isShowBlacklisted = !this._state.isShowBlacklisted);
 
 			const hkIsBlacklisted = () => {
